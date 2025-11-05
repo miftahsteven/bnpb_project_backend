@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Category { // kategori rambu
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  Rambus    Rambu[]
+}
+
+model DisasterType { // jenis kebencanaan
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  Rambus    Rambu[]
+}
+
+model Rambu {
+  id            String       @id @default(cuid())
+  name          String
+  description   String?
+  lat           Float
+  lng           Float
+  categoryId    String
+  disasterTypeId String
+  status        String       @default("draft") // draft|valid|perbaikan|ditolak
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  category      Category     @relation(fields: [categoryId], references: [id])
+  disasterType  DisasterType @relation(fields: [disasterTypeId], references: [id])
+  photos        Photo[]
+}
+
+model Photo {
+  id        String   @id @default(cuid())
+  rambuId   String
+  url       String   // untuk saat ini: path lokal /uploads/..., nanti bisa ganti ke Firebase/S3 URL
+  checksum  String?
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  rambu     Rambu    @relation(fields: [rambuId], references: [id], onDelete: Cascade)
+}
+
+model ImportBatch {
+  id          String   @id @default(cuid())
+  source      String   // "excel"
+  status      String   // queued|validating|needs_fix|imported|failed
+  report      Json?
+  createdAt   DateTime @default(now())
+}
