@@ -7,18 +7,18 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Category { // kategori rambu
-  id        String   @id @default(cuid())
-  code      String   @unique
+model Category {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique(map: "Category_UNIQUE")
   name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   Rambus    Rambu[]
 }
 
-model DisasterType { // jenis kebencanaan
-  id        String   @id @default(cuid())
-  code      String   @unique
+model DisasterType {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique(map: "DisasterType_UNIQUE")
   name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -26,37 +26,120 @@ model DisasterType { // jenis kebencanaan
 }
 
 model Rambu {
-  id            String       @id @default(cuid())
-  name          String
-  description   String?
-  lat           Float
-  lng           Float
-  categoryId    String
-  disasterTypeId String
-  status        String       @default("draft") // draft|valid|perbaikan|ditolak
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  id             Int           @id @default(autoincrement())
+  name           String
+  description    String?
+  lat            Float
+  lng            Float
+  categoryId     Int
+  disasterTypeId Int
+  status         String        @default("draft")
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  prov_id        Int?
+  city_id        Int?
+  district_id    Int?
+  subdistrict_id Int?
+  jmlUnit        Int?
+  photos         Photo[]
+  category       Category      @relation(fields: [categoryId], references: [id], onUpdate: Restrict, map: "Rambu_Category_FK")
+  disasterType   DisasterType  @relation(fields: [disasterTypeId], references: [id], onUpdate: Restrict, map: "Rambu_DisasterType_FK")
+  cities         cities?       @relation(fields: [city_id], references: [city_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_cities_FK")
+  districts      districts?    @relation(fields: [district_id], references: [dis_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_districts_FK")
+  provinces      provinces?    @relation(fields: [prov_id], references: [prov_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_provinces_FK")
+  subdistricts   subdistricts? @relation(fields: [subdistrict_id], references: [subdis_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_subdistricts_FK")
 
-  category      Category     @relation(fields: [categoryId], references: [id])
-  disasterType  DisasterType @relation(fields: [disasterTypeId], references: [id])
-  photos        Photo[]
+  @@index([categoryId], map: "Rambu_Category_FK")
+  @@index([disasterTypeId], map: "Rambu_DisasterType_FK")
+  @@index([city_id], map: "Rambu_cities_FK")
+  @@index([district_id], map: "Rambu_districts_FK")
+  @@index([prov_id], map: "Rambu_provinces_FK")
+  @@index([subdistrict_id], map: "Rambu_subdistricts_FK")
 }
 
 model Photo {
-  id        String   @id @default(cuid())
-  rambuId   String
-  url       String   // untuk saat ini: path lokal /uploads/..., nanti bisa ganti ke Firebase/S3 URL
+  id        Int      @id @default(autoincrement())
+  rambuId   Int
+  url       String
   checksum  String?
-  meta      Json?
+  meta      String?  @db.LongText
   createdAt DateTime @default(now())
+  type      Int?     @db.SmallInt
+  rambu     Rambu    @relation(fields: [rambuId], references: [id], onUpdate: Restrict, map: "Photo_Rambu_FK")
 
-  rambu     Rambu    @relation(fields: [rambuId], references: [id], onDelete: Cascade)
+  @@index([rambuId], map: "Photo_Rambu_FK")
 }
 
 model ImportBatch {
-  id          String   @id @default(cuid())
-  source      String   // "excel"
-  status      String   // queued|validating|needs_fix|imported|failed
-  report      Json?
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  source    String
+  status    String
+  report    String?  @db.LongText
+  createdAt DateTime @default(now())
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model cities {
+  city_id     Int           @id
+  city_name   String?       @db.VarChar(255)
+  prov_id     Int?
+  Rambu       Rambu[]
+  satuanKerja satuanKerja[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model districts {
+  dis_id   Int     @id
+  dis_name String? @db.VarChar(255)
+  city_id  Int?
+  ket      String? @db.VarChar(100)
+  Rambu    Rambu[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model provinces {
+  prov_id         Int           @id
+  prov_name       String?       @db.VarChar(255)
+  locationid      Int?
+  status          Int?
+  province_by_dpt Int?
+  geom            String?       @db.LongText
+  Rambu           Rambu[]
+  satuanKerja     satuanKerja[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model subdistricts {
+  subdis_id   Int     @id
+  subdis_name String? @db.VarChar(255)
+  dis_id      Int?
+  kel_id      Int?
+  Rambu       Rambu[]
+}
+
+model satuanKerja {
+  id        Int        @id @default(autoincrement())
+  name      String?    @db.VarChar(255)
+  prov_id   Int?
+  citiy_id  Int?
+  cities    cities?    @relation(fields: [citiy_id], references: [city_id], onDelete: Restrict, onUpdate: Restrict, map: "satuanKerja_cities_FK")
+  provinces provinces? @relation(fields: [prov_id], references: [prov_id], onDelete: Restrict, onUpdate: Restrict, map: "satuanKerja_provinces_FK")
+  users     users[]
+
+  @@index([citiy_id], map: "satuanKerja_cities_FK")
+  @@index([prov_id], map: "satuanKerja_provinces_FK")
+}
+
+model users {
+  id          Int          @id @default(autoincrement())
+  username    String?      @db.VarChar(100)
+  password    String?      @db.VarChar(255)
+  name        String?      @db.VarChar(255)
+  satker_id   Int?         @default(0)
+  status      Int?         @default(1)
+  token       String?      @db.LongText
+  role        Int?         @default(0) @db.SmallInt
+  satuanKerja satuanKerja? @relation(fields: [satker_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "users_satuanKerja_FK")
+
+  @@index([satker_id], map: "users_satuanKerja_FK")
 }
