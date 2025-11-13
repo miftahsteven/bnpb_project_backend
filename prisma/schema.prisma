@@ -42,12 +42,12 @@ model Rambu {
   subdistrict_id Int?
   jmlUnit        Int?
   photos         Photo[]
-  category       Category      @relation(fields: [categoryId], references: [id], onUpdate: Restrict, map: "Rambu_Category_FK")
-  disasterType   DisasterType  @relation(fields: [disasterTypeId], references: [id], onUpdate: Restrict, map: "Rambu_DisasterType_FK")
-  cities         cities?       @relation(fields: [city_id], references: [city_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_cities_FK")
-  districts      districts?    @relation(fields: [district_id], references: [dis_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_districts_FK")
-  provinces      provinces?    @relation(fields: [prov_id], references: [prov_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_provinces_FK")
-  subdistricts   subdistricts? @relation(fields: [subdistrict_id], references: [subdis_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_subdistricts_FK")
+  category       Category      @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Rambu_Category_FK")
+  disasterType   DisasterType  @relation(fields: [disasterTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Rambu_DisasterType_FK")
+  cities         cities?       @relation(fields: [city_id], references: [city_id], onDelete: NoAction, onUpdate: NoAction, map: "Rambu_cities_FK")
+  districts      districts?    @relation(fields: [district_id], references: [dis_id], onDelete: NoAction, onUpdate: NoAction, map: "Rambu_districts_FK")
+  provinces      provinces?    @relation(fields: [prov_id], references: [prov_id], onDelete: NoAction, onUpdate: NoAction, map: "Rambu_provinces_FK")
+  subdistricts   subdistricts? @relation(fields: [subdistrict_id], references: [subdis_id], onDelete: NoAction, onUpdate: NoAction, map: "Rambu_subdistricts_FK")
 
   @@index([categoryId], map: "Rambu_Category_FK")
   @@index([disasterTypeId], map: "Rambu_DisasterType_FK")
@@ -65,7 +65,7 @@ model Photo {
   meta      String?  @db.LongText
   createdAt DateTime @default(now())
   type      Int?     @db.SmallInt
-  rambu     Rambu    @relation(fields: [rambuId], references: [id], onUpdate: Restrict, map: "Photo_Rambu_FK")
+  rambu     Rambu    @relation(fields: [rambuId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Photo_Rambu_FK")
 
   @@index([rambuId], map: "Photo_Rambu_FK")
 }
@@ -122,8 +122,8 @@ model satuanKerja {
   name      String?    @db.VarChar(255)
   prov_id   Int?
   citiy_id  Int?
-  cities    cities?    @relation(fields: [citiy_id], references: [city_id], onDelete: Restrict, onUpdate: Restrict, map: "satuanKerja_cities_FK")
-  provinces provinces? @relation(fields: [prov_id], references: [prov_id], onDelete: Restrict, onUpdate: Restrict, map: "satuanKerja_provinces_FK")
+  cities    cities?    @relation(fields: [citiy_id], references: [city_id], onDelete: NoAction, onUpdate: NoAction, map: "satuanKerja_cities_FK")
+  provinces provinces? @relation(fields: [prov_id], references: [prov_id], onDelete: NoAction, onUpdate: NoAction, map: "satuanKerja_provinces_FK")
   users     users[]
 
   @@index([citiy_id], map: "satuanKerja_cities_FK")
@@ -139,7 +139,7 @@ model users {
   status      Int?         @default(1)
   token       String?      @db.LongText
   role        Int?         @default(0) @db.SmallInt
-  satuanKerja satuanKerja? @relation(fields: [satker_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "users_satuanKerja_FK")
+  satuanKerja satuanKerja? @relation(fields: [satker_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "users_satuanKerja_FK")
 
   @@index([satker_id], map: "users_satuanKerja_FK")
 }

@@ -58,7 +58,7 @@ async function main() {
     await app.register(authRoutes, { prefix: "/api" });
     await app.register(usersRoutes, { prefix: "/api" });
 
-    const port = process.env.PORT ? Number(process.env.PORT) : 4000;
+    const port = process.env.PORT ? Number(process.env.PORT) : 8044;
     await app.listen({ port });
     app.log.info(`API ready at http://localhost:${port}`);
 }
