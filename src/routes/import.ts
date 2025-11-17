@@ -20,7 +20,7 @@ async function resolveCategoryAndDisaster(jenis: string, defaults: { categoryId?
     }
     // contoh sangat sederhana: coba cari Category.name == jenis (case-insensitive)
     const cat = await prisma.category.findFirst({
-        where: { name: { equals: jenis, mode: 'insensitive' } }
+        where: { name: { equals: jenis } }
     })
     // fallback: pakai default kalau ada
     return {
@@ -35,7 +35,7 @@ const importRoutes: FastifyPluginAsync = async (app) => {
     //  - file: excel (.xlsx)
     //  - imagesZip: (optional) .zip berisi file gambar, dipetakan lewat kolom PhotoGPS/Photo0/Photo50/Photo100
     //  - defaults (opsional): categoryId, disasterTypeId, prov_id, city_id, district_id, subdistrict_id
-    app.post('/import/rambu-excel', { preHandler: app.multipart }, async (req, reply) => {
+    app.post('/import/rambu-excel', async (req, reply) => {
         const q = req.query as any
         const defaults = {
             categoryId: q.categoryId ? Number(q.categoryId) : undefined,
@@ -49,16 +49,19 @@ const importRoutes: FastifyPluginAsync = async (app) => {
         let excelBuf: Buffer | null = null
         let zipBuf: Buffer | null = null
 
-        const mp = await req.parts()
-        for await (const part of mp) {
-            if (part.file && part.fieldname === 'file') {
+        const parts = req.parts()
+        for await (const part of parts) {
+            if (part.type === 'file') {
                 const chunks: Buffer[] = []
-                for await (const c of part.file) chunks.push(c)
-                excelBuf = Buffer.concat(chunks)
-            } else if (part.file && part.fieldname === 'imagesZip') {
-                const chunks: Buffer[] = []
-                for await (const c of part.file) chunks.push(c)
-                zipBuf = Buffer.concat(chunks)
+                for await (const chunk of part.file) {
+                    chunks.push(chunk as Buffer)
+                }
+                const buf = Buffer.concat(chunks)
+                if (part.fieldname === 'file') {
+                    excelBuf = buf
+                } else if (part.fieldname === 'imagesZip') {
+                    zipBuf = buf
+                }
             }
         }
 

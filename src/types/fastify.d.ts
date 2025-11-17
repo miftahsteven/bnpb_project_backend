@@ -5,15 +5,15 @@ declare module "fastify" {
         authenticate: any;
     }
 
-    interface FastifyRequest {
-        user: {
-            id: number;
-            role: number;   // ✅ integer
-            satker_id?: number;
-            satuanKerja?: {
-                id: number;
-                name: string;
-            };
-        };
-    }
+    // interface FastifyRequest {
+    //     user: {
+    //         id: number;
+    //         role: number;   // ✅ integer
+    //         satker_id?: number;
+    //         satuanKerja?: {
+    //             id: number;
+    //             name: string;
+    //         };
+    //     };
+    // }
 }

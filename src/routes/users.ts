@@ -166,9 +166,9 @@ const usersRoutes: FastifyPluginAsync = async (app) => {
     // ===========================
     app.get("/users", { preHandler: authBearer }, async (req, reply) => {
         if (!req.user) return reply.code(401).send({ error: "Unauthorized" });
-        if (![ROLE.SUPERADMIN, ROLE.MANAGER].includes(req.user.role)) {
-            return reply.code(403).send({ error: "Forbidden" });
-        }
+        // if (![ROLE.SUPERADMIN, ROLE.MANAGER].includes(req.user.role)) {
+        //     return reply.code(403).send({ error: "Forbidden" });
+        // }
 
         const users = await prisma.users.findMany({
             orderBy: { id: "desc" },
@@ -195,7 +195,7 @@ const usersRoutes: FastifyPluginAsync = async (app) => {
         Params: { id: string };
     }>("/users/:id", { preHandler: authBearer }, async (req, reply) => {
         if (!req.user) return reply.code(401).send({ error: "Unauthorized" });
-        if (![ROLE.SUPERADMIN, ROLE.MANAGER].includes(req.user.role)) {
+        if (req.user.role !== ROLE.SUPERADMIN && req.user.role !== ROLE.MANAGER) {
             return reply.code(403).send({ error: "Forbidden" });
         }
 

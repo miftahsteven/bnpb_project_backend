@@ -32,7 +32,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
         const { q, limit } = (req.query as any) ?? {}
         const take = Math.min(Number(limit) || 100, 500)
         const rows = await prisma.provinces.findMany({
-            where: q ? { prov_name: { contains: String(q), mode: 'insensitive' } } : undefined,
+            where: q ? { prov_name: { contains: String(q) } } : undefined,
             select: { prov_id: true, prov_name: true },
             orderBy: { prov_name: 'asc' },
             take
@@ -48,7 +48,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
         const rows = await prisma.cities.findMany({
             where: {
                 prov_id: Number(prov_id),
-                ...(q ? { city_name: { contains: String(q), mode: 'insensitive' } } : {})
+                ...(q ? { city_name: { contains: String(q) } } : {})
             },
             select: { city_id: true, city_name: true },
             orderBy: { city_name: 'asc' },
@@ -65,7 +65,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
         const rows = await prisma.districts.findMany({
             where: {
                 city_id: Number(city_id),
-                ...(q ? { dis_name: { contains: String(q), mode: 'insensitive' } } : {})
+                ...(q ? { dis_name: { contains: String(q) } } : {})
             },
             select: { dis_id: true, dis_name: true },
             orderBy: { dis_name: 'asc' },
@@ -82,7 +82,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
         const rows = await prisma.subdistricts.findMany({
             where: {
                 dis_id: Number(district_id),
-                ...(q ? { subdis_name: { contains: String(q), mode: 'insensitive' } } : {})
+                ...(q ? { subdis_name: { contains: String(q) } } : {})
             },
             select: { subdis_id: true, subdis_name: true },
             orderBy: { subdis_name: 'asc' },
