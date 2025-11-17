@@ -4,18 +4,18 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { ZodTypeProvider } from "fastify-type-provider-zod";
-import authPlugin from "@/plugins/auth";
+import authPlugin from "./plugins/auth";
 
-import refRoutes from "@/routes/ref";
-import rambuRoutes from "@/routes/rambu";
-import importRoutes from "@/routes/import";
-import photoRoutes from "@/routes/photo";
-import locationsRoutes from "@/routes/locations";
-import locationsGeomRoutes from "@/routes/locations-geom";
-import rambuCrudRoutes from "@/routes/rambu-crud"; // ✅ pastikan path betul
-import provinceGeomRoutes from "@/routes/province-geom";
-import authRoutes from "@/routes/auth";
-import usersRoutes from "@/routes/users";
+import refRoutes from "./routes/ref";
+import rambuRoutes from "./routes/rambu";
+import importRoutes from "./routes/import";
+import photoRoutes from "./routes/photo";
+import locationsRoutes from "./routes/locations";
+import locationsGeomRoutes from "./routes/locations-geom";
+import rambuCrudRoutes from "./routes/rambu-crud"; // ✅ pastikan path betul
+import provinceGeomRoutes from "./routes/province-geom";
+import authRoutes from "./routes/auth";
+import usersRoutes from "./routes/users";
 
 
 
