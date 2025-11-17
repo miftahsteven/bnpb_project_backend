@@ -1,5 +1,5 @@
 import { FastifyPluginAsync } from "fastify";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "../lib/prisma";
 
 const rambuCrudRoutes: FastifyPluginAsync = async (app) => {
     app.get("/rambu-crud", async (req, reply) => {

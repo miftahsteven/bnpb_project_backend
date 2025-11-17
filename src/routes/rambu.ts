@@ -1,8 +1,8 @@
 import { FastifyPluginAsync } from "fastify";
-import { prisma } from "@/lib/prisma";
-import { rambuCreateSchema, rambuUpdateSchema, photoTypeMap } from "@/schemas/rambu";
+import { prisma } from "../lib/prisma";
+import { rambuCreateSchema, rambuUpdateSchema, photoTypeMap } from "../schemas/rambu";
 import { randomUUID } from "crypto";
-import { saveBufferLocal, sha256 } from "@/lib/storage";
+import { saveBufferLocal, sha256 } from "../lib/storage";
 import exifr from "exifr";
 
 // =========================

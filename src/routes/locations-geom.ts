@@ -2,7 +2,7 @@
 import { FastifyPluginAsync } from 'fastify'
 
 const locationsGeomRoutes: FastifyPluginAsync = async (app) => {
-    const prisma = (await import('@/lib/prisma')).prisma
+    const prisma = (await import('../lib/prisma')).prisma
 
     app.get('/locations/province-geojson', async (req, reply) => {
         const { prov_id } = (req.query as any) ?? {}

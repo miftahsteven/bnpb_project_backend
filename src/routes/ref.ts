@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify'
-import { prisma } from '@/lib/prisma'
-import { categorySchema, disasterTypeSchema } from '@/schemas/ref'
+import { prisma } from '../lib/prisma'
+import { categorySchema, disasterTypeSchema } from '../schemas/ref'
 
 const refRoutes: FastifyPluginAsync = async (app) => {
     // Category
