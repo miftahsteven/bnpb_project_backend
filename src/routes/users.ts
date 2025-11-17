@@ -1,5 +1,5 @@
 import { FastifyPluginAsync, FastifyRequest } from "fastify";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "../lib/prisma";
 import jwt from "jsonwebtoken";
 import crypto, { randomUUID } from "crypto";
 import * as bcrypt from "bcryptjs";

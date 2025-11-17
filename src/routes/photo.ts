@@ -1,7 +1,7 @@
 import { FastifyPluginAsync } from 'fastify'
-import { prisma } from '@/lib/prisma'
+import { prisma } from '../lib/prisma'
 import { randomUUID } from 'crypto'
-import { saveBufferLocal, sha256 } from '@/lib/storage'
+import { saveBufferLocal, sha256 } from '../lib/storage'
 
 const photoRoutes: FastifyPluginAsync = async (app) => {
     app.get('/photo/by-rambu/:rambuId', async (req) => {

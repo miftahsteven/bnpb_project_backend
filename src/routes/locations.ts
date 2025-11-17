@@ -25,7 +25,7 @@ function mapSubdistrict(s: any) {
 }
 
 const locationsRoutes: FastifyPluginAsync = async (app) => {
-    const prisma = (await import('@/lib/prisma')).prisma
+    const prisma = (await import('../lib/prisma')).prisma
 
     // Provinces
     app.get('/locations/provinces', async (req) => {

@@ -1,8 +1,8 @@
 import { FastifyPluginAsync } from 'fastify'
 import XLSX from 'xlsx'
 import AdmZip from 'adm-zip'
-import { prisma } from '@/lib/prisma'
-import { saveBufferLocal, sha256 } from '@/lib/storage'
+import { prisma } from '../lib/prisma'
+import { saveBufferLocal, sha256 } from '../lib/storage'
 import { randomUUID } from 'crypto'
 
 // helper baca excel buffer -> array record

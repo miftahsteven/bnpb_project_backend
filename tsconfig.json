@@ -12,10 +12,6 @@
     "outDir": "dist",
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "typeRoots": [
-      "./node_modules/@types",
-      "./src/types"
-    ],
     "rootDir": "src",
     "baseUrl": "src",
     "typeRoots": [
