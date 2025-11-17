@@ -172,9 +172,9 @@ const usersRoutes = async (app) => {
     app.get("/users", { preHandler: authBearer }, async (req, reply) => {
         if (!req.user)
             return reply.code(401).send({ error: "Unauthorized" });
-        // if (![ROLE.SUPERADMIN, ROLE.MANAGER].includes(req.user.role)) {
-        //     return reply.code(403).send({ error: "Forbidden" });
-        // }
+        if (![exports.ROLE.SUPERADMIN, exports.ROLE.MANAGER].includes(req.user.role)) {
+            return reply.code(403).send({ error: "Forbidden" });
+        }
         const users = await prisma_1.prisma.users.findMany({
             orderBy: { id: "desc" },
             select: {
