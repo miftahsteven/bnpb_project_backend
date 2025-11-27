@@ -16,7 +16,7 @@ const lngCoerce = z.preprocess((v) => toNum(v), z.number().min(-180).max(180))
 
 
 export const rambuCreateSchema = z.object({
-    name: z.string().min(1),
+    //name: z.string().min(1),
     description: z.string().optional(),
     // lat: z.coerce.number().min(-90).max(90),
     // lng: z.coerce.number().min(-180).max(180),
@@ -31,7 +31,20 @@ export const rambuCreateSchema = z.object({
     jmlUnit: z.coerce.number().int().optional()
 })
 
+export const rambuPropsSchema = z.object({
+    id: z.coerce.number().int().positive(),
+    year: z.coerce.number().int().optional(),
+    cost_id: z.coerce.number().int().optional(),
+    model: z.coerce.number().int().optional(),
+    isPlanning: z.coerce.number().int().optional(),
+    isSimulation: z.coerce.number().int().optional(),
+    rambuId: z.coerce.number().int().positive(),
+    user_id: z.coerce.number().int().positive()
+})
+
 export const rambuUpdateSchema = rambuCreateSchema.partial()
+
+export const rambuPropsUpdateSchema = rambuPropsSchema.partial()
 
 // tipe foto:
 // 1: gps_handled, 2: pemasangan 0%, 3: pemasangan 50%, 4: pemasangan 100%

@@ -27,7 +27,7 @@ model DisasterType {
 
 model Rambu {
   id             Int           @id @default(autoincrement())
-  name           String
+  name           String?
   description    String?
   lat            Float
   lng            Float
@@ -40,14 +40,15 @@ model Rambu {
   city_id        Int?
   district_id    Int?
   subdistrict_id Int?
-  jmlUnit        Int?
+  jmlUnit        Int?          @default(1)
   photos         Photo[]
-  category       Category      @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Rambu_Category_FK")
-  disasterType   DisasterType  @relation(fields: [disasterTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Rambu_DisasterType_FK")
-  cities         cities?       @relation(fields: [city_id], references: [city_id], onDelete: NoAction, onUpdate: NoAction, map: "Rambu_cities_FK")
-  districts      districts?    @relation(fields: [district_id], references: [dis_id], onDelete: NoAction, onUpdate: NoAction, map: "Rambu_districts_FK")
-  provinces      provinces?    @relation(fields: [prov_id], references: [prov_id], onDelete: NoAction, onUpdate: NoAction, map: "Rambu_provinces_FK")
-  subdistricts   subdistricts? @relation(fields: [subdistrict_id], references: [subdis_id], onDelete: NoAction, onUpdate: NoAction, map: "Rambu_subdistricts_FK")
+  category       Category      @relation(fields: [categoryId], references: [id], onUpdate: Restrict, map: "Rambu_Category_FK")
+  disasterType   DisasterType  @relation(fields: [disasterTypeId], references: [id], onUpdate: Restrict, map: "Rambu_DisasterType_FK")
+  cities         cities?       @relation(fields: [city_id], references: [city_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_cities_FK")
+  districts      districts?    @relation(fields: [district_id], references: [dis_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_districts_FK")
+  provinces      provinces?    @relation(fields: [prov_id], references: [prov_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_provinces_FK")
+  subdistricts   subdistricts? @relation(fields: [subdistrict_id], references: [subdis_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_subdistricts_FK")
+  RambuProps     RambuProps[]
 
   @@index([categoryId], map: "Rambu_Category_FK")
   @@index([disasterTypeId], map: "Rambu_DisasterType_FK")
@@ -65,7 +66,7 @@ model Photo {
   meta      String?  @db.LongText
   createdAt DateTime @default(now())
   type      Int?     @db.SmallInt
-  rambu     Rambu    @relation(fields: [rambuId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Photo_Rambu_FK")
+  rambu     Rambu    @relation(fields: [rambuId], references: [id], onUpdate: Restrict, map: "Photo_Rambu_FK")
 
   @@index([rambuId], map: "Photo_Rambu_FK")
 }
@@ -122,8 +123,8 @@ model satuanKerja {
   name      String?    @db.VarChar(255)
   prov_id   Int?
   citiy_id  Int?
-  cities    cities?    @relation(fields: [citiy_id], references: [city_id], onDelete: NoAction, onUpdate: NoAction, map: "satuanKerja_cities_FK")
-  provinces provinces? @relation(fields: [prov_id], references: [prov_id], onDelete: NoAction, onUpdate: NoAction, map: "satuanKerja_provinces_FK")
+  cities    cities?    @relation(fields: [citiy_id], references: [city_id], onDelete: Restrict, onUpdate: Restrict, map: "satuanKerja_cities_FK")
+  provinces provinces? @relation(fields: [prov_id], references: [prov_id], onDelete: Restrict, onUpdate: Restrict, map: "satuanKerja_provinces_FK")
   users     users[]
 
   @@index([citiy_id], map: "satuanKerja_cities_FK")
@@ -139,7 +140,42 @@ model users {
   status      Int?         @default(1)
   token       String?      @db.LongText
   role        Int?         @default(0) @db.SmallInt
-  satuanKerja satuanKerja? @relation(fields: [satker_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "users_satuanKerja_FK")
+  RambuProps  RambuProps[]
+  satuanKerja satuanKerja? @relation(fields: [satker_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "users_satuanKerja_FK")
 
   @@index([satker_id], map: "users_satuanKerja_FK")
+}
+
+model RambuProps {
+  id                            Int         @id @default(autoincrement())
+  year                          String?     @db.VarChar(5)
+  cost_id                       Int?
+  model                         Int?
+  isPlanning                    Int?        @default(0) @db.SmallInt
+  isSimulation                  Int?        @default(0) @db.SmallInt
+  rambuId                       Int?
+  user_id                       Int?
+  createdAt                     DateTime?   @default(now()) @db.DateTime(0)
+  updatedAt                     DateTime?   @db.DateTime(0)
+  Rambu                         Rambu?      @relation(fields: [rambuId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "RambuProps_Rambu_FK")
+  costsource                    costsource? @relation(fields: [cost_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "RambuProps_costsource_FK")
+  model_RambuProps_modelTomodel model?      @relation("RambuProps_modelTomodel", fields: [model], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "RambuProps_model_FK")
+  users                         users?      @relation(fields: [user_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "RambuProps_users_FK")
+
+  @@index([rambuId], map: "RambuProps_Rambu_FK")
+  @@index([cost_id], map: "RambuProps_costsource_FK")
+  @@index([model], map: "RambuProps_model_FK")
+  @@index([user_id], map: "RambuProps_users_FK")
+}
+
+model costsource {
+  id         Int          @id @default(autoincrement())
+  name       String?      @db.VarChar(100)
+  RambuProps RambuProps[]
+}
+
+model model {
+  id                                 Int          @id @default(autoincrement())
+  name                               String?      @db.VarChar(100)
+  RambuProps_RambuProps_modelTomodel RambuProps[] @relation("RambuProps_modelTomodel")
 }

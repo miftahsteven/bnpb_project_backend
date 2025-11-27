@@ -24,7 +24,13 @@ const app = Fastify({
 }).withTypeProvider<ZodTypeProvider>();
 
 async function main() {
-    await app.register(cors, { origin: "*" });
+    //await app.register(cors, { origin: "*" });
+    await app.register(cors, {
+        origin: "*",
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        //allowedHeaders: ['Authorization', 'Content-Type'],
+        //maxAge: 86400,
+    })
 
     // ✅ multipart yang benar
     await app.register(multipart, {

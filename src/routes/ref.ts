@@ -1,9 +1,11 @@
 import { FastifyPluginAsync } from 'fastify'
 import { prisma } from '../lib/prisma'
 import { categorySchema, disasterTypeSchema } from '../schemas/ref'
+//import geografis library from https://github.com/drizki/geografis
+import geografis from 'geografis'
 
 const refRoutes: FastifyPluginAsync = async (app) => {
-    // Category
+    // Category`
     app.get('/ref/categories', async () => prisma.category.findMany())
     app.post('/ref/categories', {
         errorHandler: (error: any, request: any, reply: any) => {
@@ -122,6 +124,21 @@ const refRoutes: FastifyPluginAsync = async (app) => {
             message: 'Hapus Jenis Bencana Berhasil'
         })
     })
+
+    app.get('/ref/model', async () => prisma.model.findMany())
+    app.get('/ref/costsource', async () => prisma.costsource.findMany())
+
+    app.post("/ref/geografis", async (req) => {
+
+        const { lat, long } = req.body as any;
+        const village = await geografis.getNearest(lat, long);
+
+        return {
+            data: village,
+            message: 'Success',
+            status: 200
+        }
+    });
 }
 
 export default refRoutes

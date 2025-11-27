@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const prisma_1 = require("@/lib/prisma");
-const ref_1 = require("@/schemas/ref");
+const prisma_1 = require("../lib/prisma");
+const ref_1 = require("../schemas/ref");
 const refRoutes = async (app) => {
     // Category
     app.get('/ref/categories', async () => prisma_1.prisma.category.findMany());

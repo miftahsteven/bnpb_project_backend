@@ -4,6 +4,35 @@ import { rambuCreateSchema, rambuUpdateSchema, photoTypeMap } from "../schemas/r
 import { randomUUID } from "crypto";
 import { saveBufferLocal, sha256 } from "../lib/storage";
 import exifr from "exifr";
+import { is } from "zod/v4/locales";
+//import jwt from "jsonwebtoken";
+
+
+declare module "fastify" {
+    interface FastifyRequest {
+        authUser?: { id: number; role?: any };
+    }
+}
+
+// Simple auth guard (pakai secret yang sama dengan signToken)
+// tidak menggunakan env JWVT_SECRET, token dikirim melalui header dan mengandung user id, tokenpun disimpan dalam table users.
+// jika sesuai maka data bisa diakses
+async function authGuard(req: any, reply: any) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const token = authHeader.slice(7).trim();
+    if (!token) return reply.code(401).send({ error: "Unauthorized" });
+
+    // Cari user berdasarkan token yang tersimpan
+    const user = await prisma.users.findFirst({ where: { token } });
+    if (!user) {
+        return reply.code(401).send({ error: "Unauthorized" });
+    }
+    req.authUser = { id: user.id, role: user.role };
+}
+
 
 // =========================
 // ✅ Google Drive Utilities
@@ -91,7 +120,7 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
     // ======================================================
     // ✅ CREATE RAMBU — upload file + Google Drive URL
     // ======================================================
-    app.post("/rambu", async (req, reply) => {
+    app.post("/rambu", { preHandler: authGuard }, async (req, reply) => {
         const parts = req.parts();
 
         const fields: Record<string, any> = {};
@@ -101,95 +130,94 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
             if (part.type === "file") {
                 const chunks: Buffer[] = [];
                 for await (const c of part.file) chunks.push(c);
-
-                files[part.fieldname] = {
-                    filename: part.filename,
-                    buf: Buffer.concat(chunks),
-                };
+                files[part.fieldname] = { filename: part.filename, buf: Buffer.concat(chunks) };
             } else {
                 fields[part.fieldname] = part.value;
             }
         }
 
-        // ✅ Validate only basic fields
-        const data = rambuCreateSchema.parse(fields);
+        // Validasi foto gps wajib
+        const gpsFile = files["photo_gps"];
+        if (!gpsFile || !gpsFile.buf?.length) {
+            return reply.code(400).send({ error: "Foto GPS (photo_gps) wajib diunggah" });
+        }
 
-        const created = await prisma.rambu.create({ data });
+        // Kumpulkan foto tambahan
+        const additionalKeys = ["photo_additional_1", "photo_additional_2", "photo_additional_3"];
+        const additionalFiles = additionalKeys
+            .map(k => ({ key: k, file: files[k] }))
+            .filter(x => x.file && x.file.buf?.length);
 
-        // ======================================================
-        // ✅ Helper save from FILE upload
-        // ======================================================
-        async function savePhotoFile(kind: keyof typeof photoTypeMap, file?: { filename?: string; buf: Buffer }) {
-            if (!file || !file.buf || file.buf.length === 0) return;
+        // Batas maksimum (1 gps + 3 tambahan)
+        const totalPhotos = 1 + additionalFiles.length;
+        if (totalPhotos > 4) {
+            return reply.code(400).send({ error: "Total foto melebihi batas (maksimal 4 termasuk GPS)" });
+        }
 
+        // Parse & buat rambu
+        let parsed;
+        try {
+            parsed = rambuCreateSchema.parse(fields);
+        } catch (e: any) {
+            return reply.code(400).send({ error: "Validasi gagal", issues: e?.errors ?? [] });
+        }
+
+        const created = await prisma.rambu.create({ data: parsed });
+
+        // Buat rambuProps (opsional) dengan user_id
+        const propsData: any = {
+            rambuId: created.id,
+            year: fields.year ? String(fields.year) : undefined,
+            cost_id: fields.cost_id ? Number(fields.cost_id) : undefined,
+            model: fields.model_id ? Number(fields.model_id) : undefined,
+            isSimulation: fields.isSimulation ? Number(fields.isSimulation) : undefined,
+            user_id: req.authUser?.id ?? undefined,
+        };
+        if (Object.values(propsData).some(v => v !== undefined)) {
+            await prisma.rambuProps.create({ data: propsData });
+        }
+
+        // Helper simpan foto
+        async function savePhoto(kind: string, file: { filename?: string; buf: Buffer }) {
+            if (!file?.buf?.length) return;
             const ext = (file.filename?.split(".").pop() || "jpg").toLowerCase();
             const filename = `${created.id}-${kind}-${randomUUID()}.${ext}`;
             const url = saveBufferLocal(filename, file.buf);
-
-            //ambil data meta dari file.buf jika bisa
-            const meta = await extractMeta(file.buf);
-            if (meta) {
-                app.log.info(`Extracted EXIF for ${kind}: ${JSON.stringify(meta)}`);
-            }
-
+            let meta: any = null;
+            try {
+                const exif = await exifr.parse(file.buf, { gps: true, exif: true });
+                if (exif) {
+                    meta = await extractMeta(file.buf);
+                    if (exif.latitude && exif.longitude) {
+                        meta.gps = { lat: exif.latitude, lng: exif.longitude };
+                    }
+                    if (exif.DateTimeOriginal) meta.datetime = exif.DateTimeOriginal;
+                }
+            } catch { /* ignore meta errors */ }
             await prisma.photo.create({
                 data: {
                     rambuId: created.id,
                     url,
                     checksum: sha256(file.buf),
-                    type: photoTypeMap[kind],
+                    // Mapping type: gunakan photoTypeMap.gps untuk gps, dan fallback type 99 untuk tambahan
+                    type: kind === "gps" ? photoTypeMap.gps : 99,
                     meta: meta ? JSON.stringify(meta) : null,
                 },
             });
         }
 
-        // ======================================================
-        // ✅ Helper: Save photo from Google Drive URL
-        // ======================================================
-        async function savePhotoFromUrl(kind: keyof typeof photoTypeMap, urlField?: string) {
-            if (!urlField) return;
+        // Simpan foto GPS
+        await savePhoto("gps", gpsFile);
 
-            try {
-                const { buffer, ext } = await downloadDriveFile(urlField);
-                const filename = `${created.id}-${kind}-${randomUUID()}.${ext}`;
-                const url = saveBufferLocal(filename, buffer);
-
-                const meta = await extractMeta(buffer);
-
-                await prisma.photo.create({
-                    data: {
-                        rambuId: created.id,
-                        url,
-                        checksum: sha256(buffer),
-                        type: photoTypeMap[kind],
-                        meta: meta ? JSON.stringify(meta) : null
-                    },
-                });
-            } catch (e) {
-                app.log.error(`Failed to save ${kind} from URL: ${e}`);
-            }
+        // Simpan foto tambahan
+        for (const { key, file } of additionalFiles) {
+            await savePhoto(key, file);
         }
 
-        // ======================================================
-        // ✅ Process FILE uploads
-        // ======================================================
-        await savePhotoFile("gps", files["photo_gps"]);
-        await savePhotoFile("zero", files["photo_0"]);
-        await savePhotoFile("fifty", files["photo_50"]);
-        await savePhotoFile("hundred", files["photo_100"]);
-
-        // ======================================================
-        // ✅ Process URL uploads (Google Drive)
-        // (Nama field FE harus: photo_gps_url, photo_0_url, ...)
-        // ======================================================
-        await savePhotoFromUrl("gps", fields["photo_gps_url"]);
-        await savePhotoFromUrl("zero", fields["photo_0_url"]);
-        await savePhotoFromUrl("fifty", fields["photo_50_url"]);
-        await savePhotoFromUrl("hundred", fields["photo_100_url"]);
-
+        // Ambil kembali data lengkap
         const full = await prisma.rambu.findUnique({
             where: { id: created.id },
-            include: { photos: true },
+            include: { photos: true, RambuProps: true },
         });
 
         reply.code(201).send(full);
@@ -303,6 +331,28 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
         });
 
         reply.send(full);
+    });
+
+    app.post("/rambuprops/:id", async (req, reply) => {
+        const { id } = req.params as any;
+        const body = req.body as any;
+        const created = await prisma.rambuProps.create({
+            data: {
+                rambuId: Number(id),
+                ...body,
+            },
+        });
+        reply.code(201).send(created);
+    });
+
+    app.put("/rambuprops/:id", async (req, reply) => {
+        const { id } = req.params as any;
+        const body = req.body as any;
+        const updated = await prisma.rambuProps.update({
+            where: { id: Number(id) },
+            data: body,
+        });
+        reply.send(updated);
     });
 };
 
