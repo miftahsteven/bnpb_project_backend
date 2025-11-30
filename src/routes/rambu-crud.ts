@@ -1,8 +1,25 @@
 import { FastifyPluginAsync } from "fastify";
 import { prisma } from "../lib/prisma";
 
+
+async function authGuard(req: any, reply: any) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const token = authHeader.slice(7).trim();
+    if (!token) return reply.code(401).send({ error: "Unauthorized" });
+
+    // Cari user berdasarkan token yang tersimpan
+    const user = await prisma.users.findFirst({ where: { token } });
+    if (!user) {
+        return reply.code(401).send({ error: "Unauthorized" });
+    }
+    req.authUser = { id: user.id, role: user.role };
+}
+
 const rambuCrudRoutes: FastifyPluginAsync = async (app) => {
-    app.get("/rambu-crud", async (req, reply) => {
+    app.get("/rambu-crud", { preHandler: authGuard }, async (req, reply) => {
         const q = req.query as any;
         const { isSimulation } = req.query as any
 
@@ -33,6 +50,28 @@ const rambuCrudRoutes: FastifyPluginAsync = async (app) => {
             // jika di kolom langsung: where.isSimulation = simVal
         }
 
+        // Filter per satker berdasarkan user login (kecuali admin role=1)
+        const authUserId: number | undefined = req.authUser?.id;
+        const authUserRole: number | undefined = req.authUser?.role;
+        if (authUserId && authUserRole !== 1) {
+            const usr = await prisma.users.findUnique({
+                where: { id: authUserId },
+                select: { satker_id: true },
+            });
+            const satkerId = usr?.satker_id != null ? Number(usr.satker_id) : undefined;
+            if (satkerId !== undefined) {
+                const existing = where.RambuProps?.some || {};
+                // Gabungkan dengan filter existing (mis. isSimulation)
+                where.RambuProps = {
+                    some: {
+                        ...existing,
+                        // filter lewat relasi user → satker_id
+                        users: { satker_id: satkerId },
+                    },
+                };
+            }
+        }
+
         const [total, dataRaw] = await Promise.all([
             prisma.rambu.count({ where }),
 
@@ -56,7 +95,22 @@ const rambuCrudRoutes: FastifyPluginAsync = async (app) => {
                     cities: { select: { city_name: true } },
                     districts: { select: { dis_name: true } },
                     subdistricts: { select: { subdis_name: true } },
-                    RambuProps: true,
+                    RambuProps: {
+                        take: 1,
+                        orderBy: { createdAt: "desc" },
+                        select: {
+                            id: true,
+                            createdAt: true,
+                            updatedAt: true,
+                            year: true,
+                            cost_id: true,
+                            model: true,
+                            isPlanning: true,
+                            isSimulation: true,
+                            rambuId: true,
+                            users: { select: { id: true, satker_id: true } },
+                        },
+                    },
                 },
             })
         ]);
@@ -86,7 +140,8 @@ const rambuCrudRoutes: FastifyPluginAsync = async (app) => {
                     isPlanning: row.RambuProps[0].isPlanning,
                     isSimulation: row.RambuProps[0].isSimulation,
                     rambuIdProp: row.RambuProps[0].rambuId,
-                    user_id: row.RambuProps[0].user_id,
+                    user_id: row.RambuProps[0].users?.id,
+                    satker_id: row.RambuProps[0].users?.satker_id,
                 }
                 : {}),
         }));
