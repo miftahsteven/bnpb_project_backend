@@ -163,7 +163,7 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
                 district_id: q.district_id ? Number(q.district_id) : undefined,
                 subdistrict_id: q.subdistrict_id ? Number(q.subdistrict_id) : undefined,
             },
-            include: { photos: true },
+            include: { photos: true, RambuProps: true },
             orderBy: { createdAt: "desc" },
         });
     });
@@ -199,7 +199,14 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
                 where: { id: rambuId },
                 include: {
                     photos: true,
-                    RambuProps: true,
+                    RambuProps: {
+                        select: {
+                            isSimulation: true,
+                            model: true,
+                            year: true,
+                            costsource: true,
+                        }
+                    }
                 },
             })
             if (!data) return reply.code(404).send({ error: 'Not found' })
@@ -218,6 +225,9 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
                 status: data.status,
                 isSimulation: data.RambuProps?.[0]?.isSimulation ?? 0,
                 photos: data.photos.map(p => ({ id: p.id, url: p.url, type: p.type })),
+                model: data.RambuProps?.[0]?.model ? (await prisma.model.findUnique({ where: { id: data.RambuProps[0].model } }))?.name : null,
+                costsource: data.RambuProps?.[0]?.costsource ? (await prisma.costsource.findUnique({ where: { id: data.RambuProps[0].costsource.id } }))?.name : null,
+                year: data.RambuProps?.[0]?.year ?? null,
                 createdAt: data.createdAt,
             }
 
