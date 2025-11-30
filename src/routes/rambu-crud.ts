@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 const rambuCrudRoutes: FastifyPluginAsync = async (app) => {
     app.get("/rambu-crud", async (req, reply) => {
         const q = req.query as any;
+        const { isSimulation } = req.query as any
 
         const page = q.page ? Number(q.page) : 1;
         const pageSize = q.pageSize ? Number(q.pageSize) : 20;
@@ -25,6 +26,12 @@ const rambuCrudRoutes: FastifyPluginAsync = async (app) => {
         if (q.district_id) where.district_id = Number(q.district_id);
         if (q.subdistrict_id) where.subdistrict_id = Number(q.subdistrict_id);
         if (q.status) where.status = q.status;
+        if (isSimulation !== undefined && isSimulation !== null && String(isSimulation) !== '') {
+            const simVal = Number(isSimulation) === 1 ? 1 : 0
+            // jika isSimulation disimpan di relasi RambuProps:
+            where.RambuProps = { some: { isSimulation: simVal } }
+            // jika di kolom langsung: where.isSimulation = simVal
+        }
 
         const [total, dataRaw] = await Promise.all([
             prisma.rambu.count({ where }),
