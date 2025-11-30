@@ -316,6 +316,20 @@ const usersRoutes: FastifyPluginAsync = async (app) => {
         await prisma.users.delete({ where: { id } });
         return reply.send({ ok: true });
     });
+
+    app.get("/users/satuan-kerja", async (req, reply) => {
+        //if (!req.user) return reply.code(401).send({ error: "Unauthorized" });
+
+        const satkerList = await prisma.satuanKerja.findMany({
+            orderBy: { name: "asc" },
+            select: {
+                id: true,
+                name: true,
+            },
+        });
+
+        return reply.send(satkerList);
+    });
 };
 
 export default usersRoutes;
