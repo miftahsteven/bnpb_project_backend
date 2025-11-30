@@ -49,6 +49,7 @@ const rambuCrudRoutes: FastifyPluginAsync = async (app) => {
                     cities: { select: { city_name: true } },
                     districts: { select: { dis_name: true } },
                     subdistricts: { select: { subdis_name: true } },
+                    RambuProps: true,
                 },
             })
         ]);
@@ -66,6 +67,21 @@ const rambuCrudRoutes: FastifyPluginAsync = async (app) => {
             cityName: row.cities?.city_name ?? null,
             districtName: row.districts?.dis_name ?? null,
             subdistrictName: row.subdistricts?.subdis_name ?? null,
+            //tambahkan properti dari RambuProps jika ada
+            ...(row.RambuProps?.[0]
+                ? {
+                    idProp: row.RambuProps[0].id,
+                    createdAtProp: row.RambuProps[0].createdAt,
+                    updatedAtProp: row.RambuProps[0].updatedAt,
+                    year: row.RambuProps[0].year,
+                    cost_id: row.RambuProps[0].cost_id,
+                    model: row.RambuProps[0].model,
+                    isPlanning: row.RambuProps[0].isPlanning,
+                    isSimulation: row.RambuProps[0].isSimulation,
+                    rambuIdProp: row.RambuProps[0].rambuId,
+                    user_id: row.RambuProps[0].user_id,
+                }
+                : {}),
         }));
 
         reply.send({

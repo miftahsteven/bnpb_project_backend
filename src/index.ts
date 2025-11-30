@@ -40,12 +40,13 @@ async function main() {
     app.register(authPlugin);
 
     await app.register(fastifyStatic, {
-        root: path.join(process.cwd(), "uploads"),
+        root: path.resolve(process.cwd(), "uploads"),
         prefix: "/uploads/",
+        // decorateReply default = true; biarkan untuk instance pertama
     });
     //daftarkan route static untuk folder images untuk akses langsung
     await app.register(fastifyStatic, {
-        root: path.join(process.cwd(), "public"),
+        root: path.resolve(process.cwd(), "public"),
         prefix: "/public/",
         decorateReply: false,
     });

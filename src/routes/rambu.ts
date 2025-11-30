@@ -6,6 +6,8 @@ import { saveBufferLocal, sha256 } from "../lib/storage";
 import exifr from "exifr";
 import { is } from "zod/v4/locales";
 //import jwt from "jsonwebtoken";
+import { ZodTypeProvider } from 'fastify-type-provider-zod'
+import { z } from 'zod'
 
 
 declare module "fastify" {
@@ -99,6 +101,55 @@ async function downloadDriveFile(driveUrl: string) {
 // ============================================
 const rambuRoutes: FastifyPluginAsync = async (app) => {
 
+    //Helper
+    async function savePhotoFromBuffer(rambuId: number, kind: 'gps' | 'additional' | keyof typeof photoTypeMap, buf: Buffer, origFilename?: string) {
+        if (!buf?.length) return
+        const ext = (origFilename?.split('.').pop() || 'jpg').toLowerCase()
+        const filename = `${rambuId}-${kind}-${randomUUID()}.${ext}`
+        const url = saveBufferLocal(filename, buf)
+        let meta: any = null
+        try {
+            meta = await extractMeta(buf)
+        } catch { /* ignore */ }
+
+        const type =
+            kind === 'gps' ? photoTypeMap.gps
+                : kind in photoTypeMap ? (photoTypeMap as any)[kind]
+                    : 99 // additional default type
+
+        await prisma.photo.create({
+            data: {
+                rambuId,
+                url,
+                checksum: sha256(buf),
+                type,
+                meta: meta ? JSON.stringify(meta) : null,
+            },
+        })
+    }
+
+    // Helper: hapus dan ganti foto gps dari URL
+    async function replaceGpsFromUrl(rambuId: number, urlField: string) {
+        const { buffer } = await downloadDriveFile(urlField)
+        await prisma.photo.deleteMany({ where: { rambuId, type: photoTypeMap.gps } })
+        await savePhotoFromBuffer(rambuId, 'gps', buffer, 'gps.jpg')
+    }
+
+    // Helper: parse daftar id foto yang dihapus
+    function parseRemoveIds(v: any): number[] {
+        if (!v) return []
+        try {
+            if (typeof v === 'string') {
+                // bisa JSON array atau csv
+                if (v.trim().startsWith('[')) return JSON.parse(v).map((x: any) => Number(x)).filter(Number.isFinite)
+                return v.split(',').map(s => Number(s.trim())).filter(Number.isFinite)
+            }
+            if (Array.isArray(v)) return v.map(x => Number(x)).filter(Number.isFinite)
+        } catch { /* ignore */ }
+        return []
+    }
+
+
     // ✅ GET LIST (TIDAK DIUBAH AGAR MAP TETAP JALAN)
     app.get("/rambu", async (req) => {
         const q = req.query as any;
@@ -116,6 +167,109 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
             orderBy: { createdAt: "desc" },
         });
     });
+
+    app.get("/rambu/:id", async (req, reply) => {
+        try {
+            const { id } = req.params as any
+            const rambuId = Number(id)
+            if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
+
+            const data = await prisma.rambu.findUnique({
+                where: { id: rambuId },
+                include: {
+                    photos: true,
+                    RambuProps: true,
+                },
+            })
+            if (!data) return reply.code(404).send({ error: 'Not found' })
+            return reply.send(data)
+        } catch (e: any) {
+            req.log?.error(e)
+            return reply.code(500).send({ error: 'Internal error' })
+        }
+    })
+
+    app.get("/rambu-detail/:id", async (req, reply) => {
+        try {
+            const { id } = req.params as any
+            const rambuId = Number(id)
+            if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
+
+            const data = await prisma.rambu.findUnique({
+                where: { id: rambuId },
+                include: {
+                    photos: true,
+                    RambuProps: true,
+                },
+            })
+            if (!data) return reply.code(404).send({ error: 'Not found' })
+            const dataFormatted = {
+                id: data.id,
+                name: data.name,
+                description: data.description,
+                lat: data.lat,
+                lng: data.lng,
+                categoryName: data.categoryId ? (await prisma.category.findUnique({ where: { id: data.categoryId } }))?.name : null,
+                disasterTypeName: data.disasterTypeId ? (await prisma.disasterType.findUnique({ where: { id: data.disasterTypeId } }))?.name : null,
+                provinceName: data.prov_id ? (await prisma.provinces.findUnique({ where: { prov_id: data.prov_id } }))?.prov_name : null,
+                cityName: data.city_id ? (await prisma.cities.findUnique({ where: { city_id: data.city_id } }))?.city_name : null,
+                districtName: data.district_id ? (await prisma.districts.findUnique({ where: { dis_id: data.district_id } }))?.dis_name : null,
+                subdistrictName: data.subdistrict_id ? (await prisma.subdistricts.findUnique({ where: { subdis_id: data.subdistrict_id } }))?.subdis_name : null,
+                status: data.status,
+                isSimulation: data.RambuProps?.[0]?.isSimulation ?? 0,
+                photos: data.photos.map(p => ({ id: p.id, url: p.url, type: p.type })),
+                createdAt: data.createdAt,
+            }
+
+            return reply.send({
+                data: dataFormatted,
+                status: 'success',
+                code: 200,
+            })
+        } catch (e: any) {
+            req.log?.error(e)
+            return reply.code(500).send({ error: 'Internal error' })
+        }
+    })
+
+    app.get("/rambu-map-detail/:id", async (req, reply) => {
+        try {
+            const { id } = req.params as any
+            const rambuId = Number(id)
+            if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
+
+            const data = await prisma.rambu.findUnique({
+                where: { id: rambuId },
+                include: {
+                    photos: true,
+                    RambuProps: true,
+                },
+            })
+            if (!data) return reply.code(404).send({ error: 'Not found' })
+            const dataFormatted = {
+                id: data.id,
+                name: data.name,
+                description: data.description,
+                lat: data.lat,
+                lng: data.lng,
+                categoryName: data.categoryId ? (await prisma.category.findUnique({ where: { id: data.categoryId } }))?.name : null,
+                disasterTypeName: data.disasterTypeId ? (await prisma.disasterType.findUnique({ where: { id: data.disasterTypeId } }))?.name : null,
+                provinceName: data.prov_id ? (await prisma.provinces.findUnique({ where: { prov_id: data.prov_id } }))?.prov_name : null,
+                cityName: data.city_id ? (await prisma.cities.findUnique({ where: { city_id: data.city_id } }))?.city_name : null,
+                districtName: data.district_id ? (await prisma.districts.findUnique({ where: { dis_id: data.district_id } }))?.dis_name : null,
+                subdistrictName: data.subdistrict_id ? (await prisma.subdistricts.findUnique({ where: { subdis_id: data.subdistrict_id } }))?.subdis_name : null,
+                status: data.status,
+                isSimulation: data.RambuProps?.[0]?.isSimulation ?? 0,
+                photos: data.photos.map(p => ({ id: p.id, url: p.url, type: p.type })),
+                createdAt: data.createdAt,
+            }
+
+            return reply.send(dataFormatted)
+        } catch (e: any) {
+            req.log?.error(e)
+            return reply.code(500).send({ error: 'Internal error' })
+        }
+    })
 
     // ======================================================
     // ✅ CREATE RAMBU — upload file + Google Drive URL
@@ -226,112 +380,186 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
     // ======================================================
     // ✅ UPDATE RAMBU — replace optional photo
     // ======================================================
-    app.put("/rambu/:id", async (req, reply) => {
-        const { id } = req.params as any;
-        const parts = req.parts();
+    // ======================================================
+    // UPDATE RAMBU — multipart (file + fields)
+    // ======================================================
+    app.put("/rambu/:id", { preHandler: authGuard }, async (req, reply) => {
+        const { id } = req.params as any
+        const rambuId = Number(id)
+        if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
 
-        const fields: Record<string, any> = {};
-        const files: Record<string, { filename?: string; buf: Buffer }> = {};
+        const parts = (req as any).parts()
+        const fields: Record<string, any> = {}
+        const files: Record<string, { filename?: string; buf: Buffer }> = {}
 
         for await (const part of parts) {
             if (part.type === "file") {
-                const chunks: Buffer[] = [];
-                for await (const c of part.file) chunks.push(c);
-
-                files[part.fieldname] = {
-                    filename: part.filename,
-                    buf: Buffer.concat(chunks),
-                };
+                const chunks: Buffer[] = []
+                for await (const c of part.file) chunks.push(c)
+                files[part.fieldname] = { filename: part.filename, buf: Buffer.concat(chunks) }
             } else {
-                fields[part.fieldname] = part.value;
+                fields[part.fieldname] = part.value
             }
         }
 
-        const updates = rambuUpdateSchema.parse(fields);
-
-        // ✅ Update main data
-        await prisma.rambu.update({
-            where: { id: Number(id) },
-            data: updates,
-        });
-
-        // ======================================================
-        // ✅ Replace Photo Helper (FILE)
-        // ======================================================
-        async function replacePhotoFile(kind: keyof typeof photoTypeMap, file?: { filename?: string; buf: Buffer }) {
-            if (!file || !file.buf || file.buf.length === 0) return;
-
-            await prisma.photo.deleteMany({
-                where: { rambuId: Number(id), type: photoTypeMap[kind] },
-            });
-
-            const ext = (file.filename?.split(".").pop() || "jpg").toLowerCase();
-            const filename = `${id}-${kind}-${randomUUID()}.${ext}`;
-            const url = saveBufferLocal(filename, file.buf);
-            const meta = await extractMeta(file.buf);
-
-            await prisma.photo.create({
-                data: {
-                    rambuId: Number(id),
-                    url,
-                    checksum: sha256(file.buf),
-                    type: photoTypeMap[kind],
-                    meta: meta ? JSON.stringify(meta) : null,
-                },
-            });
+        // 1) Update data utama Rambu
+        let updates: any = {}
+        try {
+            updates = rambuUpdateSchema.parse(fields)
+        } catch (e: any) {
+            // jika tidak ada field rambu yang valid, abaikan (tetap lanjut ke props/foto)
+            app.log.debug({ e }, 'rambuUpdateSchema parse: skip updates')
+        }
+        if (Object.keys(updates).length) {
+            await prisma.rambu.update({
+                where: { id: rambuId },
+                data: updates,
+            })
         }
 
-        // ======================================================
-        // ✅ Replace via URL (Google Drive)
-        // ======================================================
-        async function replacePhotoUrl(kind: keyof typeof photoTypeMap, urlField?: string) {
-            if (!urlField) return;
+        // 2) Upsert RambuProps (struktur sama dengan create)
+        // Terima variasi nama field untuk kompatibilitas
+        const yearRaw = fields.year ?? fields.tahun
+        const costRaw = fields.cost_id ?? fields.costId
+        const modelRaw = fields.model_id ?? fields.modelId ?? fields.model
+        const simRaw = fields.isSimulation ?? fields.issimulation ?? fields.is_simulation ?? fields.IsSimulation
 
+        const propsPayload: any = {
+            rambuId,
+            year: yearRaw != null ? String(yearRaw) : undefined,
+            cost_id: costRaw != null ? Number(costRaw) : undefined,
+            model: modelRaw != null ? Number(modelRaw) : undefined, // gunakan kolom `model` seperti di create
+            isSimulation: simRaw != null ? Number(simRaw) : undefined,
+            user_id: (req as any).authUser?.id ?? undefined,
+        }
+
+        // Bersihkan undefined
+        Object.keys(propsPayload).forEach(k => propsPayload[k] === undefined && delete propsPayload[k])
+
+        if (Object.keys(propsPayload).length > 0) {
+            const existingProps = await prisma.rambuProps.findFirst({ where: { rambuId } })
+            if (existingProps) {
+                await prisma.rambuProps.update({
+                    where: { id: existingProps.id },
+                    data: propsPayload,
+                })
+            } else {
+                await prisma.rambuProps.create({ data: propsPayload })
+            }
+        }
+
+        // 3) Foto
+        // 3.a) Hapus foto berdasarkan id
+        const removeIds = parseRemoveIds(fields.removePhotoIds ?? fields.remove_photos ?? fields.deletePhotoIds)
+        if (removeIds.length) {
+            await prisma.photo.deleteMany({ where: { id: { in: removeIds }, rambuId } })
+        }
+
+        // 3.b) Replace GPS photo (file atau url)
+        const gpsFile = files["photo_gps"]
+        const gpsUrl = fields["photo_gps_url"]
+        if (gpsFile?.buf?.length) {
+            await prisma.photo.deleteMany({ where: { rambuId, type: photoTypeMap.gps } })
+            await savePhotoFromBuffer(rambuId, 'gps', gpsFile.buf, gpsFile.filename)
+        } else if (gpsUrl) {
             try {
-                await prisma.photo.deleteMany({
-                    where: { rambuId: Number(id), type: photoTypeMap[kind] },
-                });
-
-                const { buffer, ext } = await downloadDriveFile(urlField);
-
-                const filename = `${id}-${kind}-${randomUUID()}.${ext}`;
-                const url = saveBufferLocal(filename, buffer);
-
-                const meta = await extractMeta(buffer);
-
-                await prisma.photo.create({
-                    data: {
-                        rambuId: Number(id),
-                        url,
-                        checksum: sha256(buffer),
-                        type: photoTypeMap[kind],
-                        meta: meta ? JSON.stringify(meta) : null
-                    },
-                });
+                await replaceGpsFromUrl(rambuId, gpsUrl)
             } catch (e) {
-                app.log.error(`Failed to update ${kind} from URL: ${e}`);
+                app.log.error({ err: e }, 'replace gps from url failed')
             }
         }
 
-        // ✅ Replace only if uploaded
-        await replacePhotoFile("gps", files["photo_gps"]);
-        await replacePhotoFile("zero", files["photo_0"]);
-        await replacePhotoFile("fifty", files["photo_50"]);
-        await replacePhotoFile("hundred", files["photo_100"]);
+        // 3.c) Tambah foto tambahan (tidak wajib replace semua)
+        //   - dukung key: photo_additional_1..3 atau photo_additional (array)
+        const additionalFiles: Array<{ filename?: string; buf: Buffer }> = []
+        Object.keys(files).forEach(k => {
+            if (k === 'photo_gps') return
+            if (k === 'photo_additional' || k.startsWith('photo_additional_')) {
+                additionalFiles.push(files[k])
+            }
+        })
 
-        // ✅ Replace only if URL provided
-        await replacePhotoUrl("gps", fields["photo_gps_url"]);
-        await replacePhotoUrl("zero", fields["photo_0_url"]);
-        await replacePhotoUrl("fifty", fields["photo_50_url"]);
-        await replacePhotoUrl("hundred", fields["photo_100_url"]);
+        // Opsi: ganti semua additional jika diminta
+        const replaceAdditional = String(fields.replaceAdditional ?? '').toLowerCase() === 'true'
+        if (replaceAdditional) {
+            await prisma.photo.deleteMany({
+                where: { rambuId, NOT: { type: photoTypeMap.gps } }
+            })
+        }
+
+        // Batas total 4 (1 gps + 3 tambahan). Hitung setelah penghapusan/replacement
+        const currentCount = await prisma.photo.count({ where: { rambuId } })
+        const allowed = Math.max(0, 4 - currentCount)
+        const toInsert = additionalFiles.slice(0, allowed)
+
+        for (const f of toInsert) {
+            await savePhotoFromBuffer(rambuId, 'additional', f.buf, f.filename)
+        }
+
+        // Backward-compat: dukung key lama jika dikirim
+        if (files["photo_0"]) await savePhotoFromBuffer(rambuId, "zero", files["photo_0"].buf, files["photo_0"].filename)
+        if (files["photo_50"]) await savePhotoFromBuffer(rambuId, "fifty", files["photo_50"].buf, files["photo_50"].filename)
+        if (files["photo_100"]) await savePhotoFromBuffer(rambuId, "hundred", files["photo_100"].buf, files["photo_100"].filename)
+
+        // 4) Ambil data final
+        const full = await prisma.rambu.findUnique({
+            where: { id: rambuId },
+            include: { photos: true, RambuProps: true },
+        })
+
+        return reply.send(full)
+    })
+
+    // ======================================================
+    // UPDATE RAMBU — JSON only (tanpa upload)
+    // ======================================================
+    app.patch("/rambu/:id", { preHandler: authGuard }, async (req, reply) => {
+        const { id } = req.params as any
+        const rambuId = Number(id)
+        if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
+
+        const body = req.body as any
+        let updates: any = {}
+        try {
+            updates = rambuUpdateSchema.parse(body)
+        } catch (e: any) {
+            app.log.debug({ e }, 'rambuUpdateSchema parse: skip updates')
+        }
+        if (Object.keys(updates).length) {
+            await prisma.rambu.update({ where: { id: rambuId }, data: updates })
+        }
+
+        // Upsert props jika ada fieldnya
+        const yearRaw = body.year ?? body.tahun
+        const costRaw = body.cost_id ?? body.costId
+        const modelRaw = body.model_id ?? body.modelId ?? body.model
+        const simRaw = body.isSimulation ?? body.issimulation ?? body.is_simulation ?? body.IsSimulation
+
+        const propsPayload: any = {
+            rambuId,
+            year: yearRaw != null ? String(yearRaw) : undefined,
+            cost_id: costRaw != null ? Number(costRaw) : undefined,
+            model: modelRaw != null ? Number(modelRaw) : undefined,
+            isSimulation: simRaw != null ? Number(simRaw) : undefined,
+            user_id: (req as any).authUser?.id ?? undefined,
+        }
+        Object.keys(propsPayload).forEach(k => propsPayload[k] === undefined && delete propsPayload[k])
+
+        if (Object.keys(propsPayload).length) {
+            const existingProps = await prisma.rambuProps.findFirst({ where: { rambuId } })
+            if (existingProps) {
+                await prisma.rambuProps.update({ where: { id: existingProps.id }, data: propsPayload })
+            } else {
+                await prisma.rambuProps.create({ data: propsPayload })
+            }
+        }
 
         const full = await prisma.rambu.findUnique({
-            where: { id: Number(id) },
-            include: { photos: true },
-        });
-
-        reply.send(full);
-    });
+            where: { id: rambuId },
+            include: { photos: true, RambuProps: true },
+        })
+        return reply.send(full)
+    })
 
     app.post("/rambuprops/:id", async (req, reply) => {
         const { id } = req.params as any;
@@ -353,6 +581,44 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
             data: body,
         });
         reply.send(updated);
+    });
+
+    app.delete("/rambu/:id", { preHandler: authGuard }, async (req, reply) => {
+        const { id } = req.params as any
+        const rambuId = Number(id)
+        if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
+
+        // Hapus foto terkait
+        await prisma.photo.deleteMany({ where: { rambuId } })
+        // Hapus props terkait
+        await prisma.rambuProps.deleteMany({ where: { rambuId } })
+        // Hapus rambu
+        await prisma.rambu.delete({ where: { id: rambuId } })
+
+        return reply.send({
+            message: 'Rambu deleted',
+            code: 200,
+            ok: true
+        })
+    });
+
+    app.put("/rambu-status/:id", { preHandler: authGuard }, async (req, reply) => {
+        const { id } = req.params as any
+        const rambuId = Number(id)
+        if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
+
+        const body = req.body as any
+        const status = body.status
+        if (typeof status !== 'string' || !status.trim().length) {
+            return reply.code(400).send({ error: 'Invalid status' })
+        }
+
+        const updated = await prisma.rambu.update({
+            where: { id: rambuId },
+            data: { status: status.trim() },
+        })
+
+        return reply.send(updated)
     });
 };
 
