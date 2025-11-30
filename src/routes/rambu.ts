@@ -162,6 +162,10 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
                 city_id: q.city_id ? Number(q.city_id) : undefined,
                 district_id: q.district_id ? Number(q.district_id) : undefined,
                 subdistrict_id: q.subdistrict_id ? Number(q.subdistrict_id) : undefined,
+                ...(q.isSimulation !== undefined
+                    ? { RambuProps: { some: { isSimulation: Number(q.isSimulation) === 1 ? 1 : 0 } } }
+                    : {}),
+                ...(q.status ? { status: String(q.status) } : {}),
             },
             include: { photos: true, RambuProps: true },
             orderBy: { createdAt: "desc" },
