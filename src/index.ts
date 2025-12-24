@@ -41,7 +41,7 @@ async function main() {
 
     await app.register(fastifyStatic, {
         root: path.resolve(process.cwd(), "uploads"),
-        prefix: "/uploads/",
+        prefix: "/public/uploads/",
         // decorateReply default = true; biarkan untuk instance pertama
     });
     //daftarkan route static untuk folder images untuk akses langsung

@@ -166,6 +166,11 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
                     ? { RambuProps: { some: { isSimulation: Number(q.isSimulation) === 1 ? 1 : 0 } } }
                     : {}),
                 ...(q.status ? { status: String(q.status) } : {}),
+                ...(q.modelId ? { RambuProps: { some: { model: Number(q.modelId) } } } : {}),
+                ...(q.costsourceId
+                    ? { RambuProps: { some: { costsource: { is: { id: Number(q.costsourceId) } } } } }
+                    : {}),
+
             },
             include: { photos: true, RambuProps: true },
             orderBy: { createdAt: "desc" },
@@ -397,182 +402,161 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
     // ======================================================
     // UPDATE RAMBU — multipart (file + fields)
     // ======================================================
-    app.put("/rambu/:id", { preHandler: authGuard }, async (req, reply) => {
-        const { id } = req.params as any
-        const rambuId = Number(id)
-        if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
-
-        const parts = (req as any).parts()
-        const fields: Record<string, any> = {}
-        const files: Record<string, { filename?: string; buf: Buffer }> = {}
-
-        for await (const part of parts) {
-            if (part.type === "file") {
-                const chunks: Buffer[] = []
-                for await (const c of part.file) chunks.push(c)
-                files[part.fieldname] = { filename: part.filename, buf: Buffer.concat(chunks) }
-            } else {
-                fields[part.fieldname] = part.value
-            }
-        }
-
-        // 1) Update data utama Rambu
-        let updates: any = {}
-        try {
-            updates = rambuUpdateSchema.parse(fields)
-        } catch (e: any) {
-            // jika tidak ada field rambu yang valid, abaikan (tetap lanjut ke props/foto)
-            app.log.debug({ e }, 'rambuUpdateSchema parse: skip updates')
-        }
-        if (Object.keys(updates).length) {
-            await prisma.rambu.update({
-                where: { id: rambuId },
-                data: updates,
-            })
-        }
-
-        // 2) Upsert RambuProps (struktur sama dengan create)
-        // Terima variasi nama field untuk kompatibilitas
-        const yearRaw = fields.year ?? fields.tahun
-        const costRaw = fields.cost_id ?? fields.costId
-        const modelRaw = fields.model_id ?? fields.modelId ?? fields.model
-        const simRaw = fields.isSimulation ?? fields.issimulation ?? fields.is_simulation ?? fields.IsSimulation
-
-        const propsPayload: any = {
-            rambuId,
-            year: yearRaw != null ? String(yearRaw) : undefined,
-            cost_id: costRaw != null ? Number(costRaw) : undefined,
-            model: modelRaw != null ? Number(modelRaw) : undefined, // gunakan kolom `model` seperti di create
-            isSimulation: simRaw != null ? Number(simRaw) : undefined,
-            user_id: (req as any).authUser?.id ?? undefined,
-        }
-
-        // Bersihkan undefined
-        Object.keys(propsPayload).forEach(k => propsPayload[k] === undefined && delete propsPayload[k])
-
-        if (Object.keys(propsPayload).length > 0) {
-            const existingProps = await prisma.rambuProps.findFirst({ where: { rambuId } })
-            if (existingProps) {
-                await prisma.rambuProps.update({
-                    where: { id: existingProps.id },
-                    data: propsPayload,
-                })
-            } else {
-                await prisma.rambuProps.create({ data: propsPayload })
-            }
-        }
-
-        // 3) Foto
-        // 3.a) Hapus foto berdasarkan id
-        const removeIds = parseRemoveIds(fields.removePhotoIds ?? fields.remove_photos ?? fields.deletePhotoIds)
-        if (removeIds.length) {
-            await prisma.photo.deleteMany({ where: { id: { in: removeIds }, rambuId } })
-        }
-
-        // 3.b) Replace GPS photo (file atau url)
-        const gpsFile = files["photo_gps"]
-        const gpsUrl = fields["photo_gps_url"]
-        if (gpsFile?.buf?.length) {
-            await prisma.photo.deleteMany({ where: { rambuId, type: photoTypeMap.gps } })
-            await savePhotoFromBuffer(rambuId, 'gps', gpsFile.buf, gpsFile.filename)
-        } else if (gpsUrl) {
-            try {
-                await replaceGpsFromUrl(rambuId, gpsUrl)
-            } catch (e) {
-                app.log.error({ err: e }, 'replace gps from url failed')
-            }
-        }
-
-        // 3.c) Tambah foto tambahan (tidak wajib replace semua)
-        //   - dukung key: photo_additional_1..3 atau photo_additional (array)
-        const additionalFiles: Array<{ filename?: string; buf: Buffer }> = []
-        Object.keys(files).forEach(k => {
-            if (k === 'photo_gps') return
-            if (k === 'photo_additional' || k.startsWith('photo_additional_')) {
-                additionalFiles.push(files[k])
-            }
-        })
-
-        // Opsi: ganti semua additional jika diminta
-        const replaceAdditional = String(fields.replaceAdditional ?? '').toLowerCase() === 'true'
-        if (replaceAdditional) {
-            await prisma.photo.deleteMany({
-                where: { rambuId, NOT: { type: photoTypeMap.gps } }
-            })
-        }
-
-        // Batas total 4 (1 gps + 3 tambahan). Hitung setelah penghapusan/replacement
-        const currentCount = await prisma.photo.count({ where: { rambuId } })
-        const allowed = Math.max(0, 4 - currentCount)
-        const toInsert = additionalFiles.slice(0, allowed)
-
-        for (const f of toInsert) {
-            await savePhotoFromBuffer(rambuId, 'additional', f.buf, f.filename)
-        }
-
-        // Backward-compat: dukung key lama jika dikirim
-        if (files["photo_0"]) await savePhotoFromBuffer(rambuId, "zero", files["photo_0"].buf, files["photo_0"].filename)
-        if (files["photo_50"]) await savePhotoFromBuffer(rambuId, "fifty", files["photo_50"].buf, files["photo_50"].filename)
-        if (files["photo_100"]) await savePhotoFromBuffer(rambuId, "hundred", files["photo_100"].buf, files["photo_100"].filename)
-
-        // 4) Ambil data final
-        const full = await prisma.rambu.findUnique({
-            where: { id: rambuId },
-            include: { photos: true, RambuProps: true },
-        })
-
-        return reply.send(full)
-    })
-
     // ======================================================
-    // UPDATE RAMBU — JSON only (tanpa upload)
+    // UPDATE RAMBU — PATCH — handles both JSON and Multipart
     // ======================================================
     app.patch("/rambu/:id", { preHandler: authGuard }, async (req, reply) => {
         const { id } = req.params as any
         const rambuId = Number(id)
         if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
 
-        const body = req.body as any
-        let updates: any = {}
-        try {
-            updates = rambuUpdateSchema.parse(body)
-        } catch (e: any) {
-            app.log.debug({ e }, 'rambuUpdateSchema parse: skip updates')
-        }
-        if (Object.keys(updates).length) {
-            await prisma.rambu.update({ where: { id: rambuId }, data: updates })
-        }
+        const contentType = req.headers['content-type'] || ''
 
-        // Upsert props jika ada fieldnya
-        const yearRaw = body.year ?? body.tahun
-        const costRaw = body.cost_id ?? body.costId
-        const modelRaw = body.model_id ?? body.modelId ?? body.model
-        const simRaw = body.isSimulation ?? body.issimulation ?? body.is_simulation ?? body.IsSimulation
+        if (contentType.includes('multipart/form-data')) {
+            // MULTIPART LOGIC
+            const parts = (req as any).parts()
+            const fields: Record<string, any> = {}
+            const files: Record<string, { filename?: string; buf: Buffer }> = {}
 
-        const propsPayload: any = {
-            rambuId,
-            year: yearRaw != null ? String(yearRaw) : undefined,
-            cost_id: costRaw != null ? Number(costRaw) : undefined,
-            model: modelRaw != null ? Number(modelRaw) : undefined,
-            isSimulation: simRaw != null ? Number(simRaw) : undefined,
-            user_id: (req as any).authUser?.id ?? undefined,
-        }
-        Object.keys(propsPayload).forEach(k => propsPayload[k] === undefined && delete propsPayload[k])
-
-        if (Object.keys(propsPayload).length) {
-            const existingProps = await prisma.rambuProps.findFirst({ where: { rambuId } })
-            if (existingProps) {
-                await prisma.rambuProps.update({ where: { id: existingProps.id }, data: propsPayload })
-            } else {
-                await prisma.rambuProps.create({ data: propsPayload })
+            for await (const part of parts) {
+                if (part.type === "file") {
+                    const chunks: Buffer[] = []
+                    for await (const c of part.file) chunks.push(c)
+                    files[part.fieldname] = { filename: part.filename, buf: Buffer.concat(chunks) }
+                } else {
+                    fields[part.fieldname] = part.value
+                }
             }
-        }
 
-        const full = await prisma.rambu.findUnique({
-            where: { id: rambuId },
-            include: { photos: true, RambuProps: true },
-        })
-        return reply.send(full)
+            // 1) Update Rambu main data
+            let updates: any = {}
+            try {
+                updates = rambuUpdateSchema.parse(fields)
+            } catch (e: any) {
+                app.log.debug({ e }, 'rambuUpdateSchema parse: skip updates')
+            }
+            if (Object.keys(updates).length) {
+                await prisma.rambu.update({ where: { id: rambuId }, data: updates })
+            }
+
+            // 2) Upsert RambuProps
+            const yearRaw = fields.year ?? fields.tahun
+            const costRaw = fields.cost_id ?? fields.costId
+            const modelRaw = fields.model_id ?? fields.modelId ?? fields.model
+            const simRaw = fields.isSimulation ?? fields.issimulation ?? fields.is_simulation ?? fields.IsSimulation
+
+            const propsPayload: any = {
+                rambuId,
+                year: yearRaw != null ? String(yearRaw) : undefined,
+                cost_id: costRaw != null ? Number(costRaw) : undefined,
+                model: modelRaw != null ? Number(modelRaw) : undefined, 
+                isSimulation: simRaw != null ? Number(simRaw) : undefined,
+                user_id: (req as any).authUser?.id ?? undefined,
+            }
+            Object.keys(propsPayload).forEach(k => propsPayload[k] === undefined && delete propsPayload[k])
+
+            if (Object.keys(propsPayload).length > 0) {
+                const existingProps = await prisma.rambuProps.findFirst({ where: { rambuId } })
+                if (existingProps) {
+                    await prisma.rambuProps.update({ where: { id: existingProps.id }, data: propsPayload })
+                } else {
+                    await prisma.rambuProps.create({ data: propsPayload })
+                }
+            }
+
+            // 3) Handle Photos
+            const removeIds = parseRemoveIds(fields.removePhotoIds ?? fields.remove_photos ?? fields.deletePhotoIds)
+            if (removeIds.length) {
+                await prisma.photo.deleteMany({ where: { id: { in: removeIds }, rambuId } })
+            }
+
+            const gpsFile = files["photo_gps"]
+            const gpsUrl = fields["photo_gps_url"]
+            if (gpsFile?.buf?.length) {
+                await prisma.photo.deleteMany({ where: { rambuId, type: photoTypeMap.gps } })
+                await savePhotoFromBuffer(rambuId, 'gps', gpsFile.buf, gpsFile.filename)
+            } else if (gpsUrl) {
+                try {
+                    await replaceGpsFromUrl(rambuId, gpsUrl)
+                } catch (e) {
+                    app.log.error({ err: e }, 'replace gps from url failed')
+                }
+            }
+
+            const additionalFiles: Array<{ filename?: string; buf: Buffer }> = []
+            Object.keys(files).forEach(k => {
+                if (k === 'photo_gps') return
+                if (k === 'photo_additional' || k.startsWith('photo_additional_')) {
+                    additionalFiles.push(files[k])
+                }
+            })
+
+            const replaceAdditional = String(fields.replaceAdditional ?? '').toLowerCase() === 'true'
+            if (replaceAdditional) {
+                await prisma.photo.deleteMany({ where: { rambuId, NOT: { type: photoTypeMap.gps } } })
+            }
+
+            const currentCount = await prisma.photo.count({ where: { rambuId } })
+            const allowed = Math.max(0, 4 - currentCount)
+            const toInsert = additionalFiles.slice(0, allowed)
+
+            for (const f of toInsert) {
+                await savePhotoFromBuffer(rambuId, 'additional', f.buf, f.filename)
+            }
+
+            if (files["photo_0"]) await savePhotoFromBuffer(rambuId, "zero", files["photo_0"].buf, files["photo_0"].filename)
+            if (files["photo_50"]) await savePhotoFromBuffer(rambuId, "fifty", files["photo_50"].buf, files["photo_50"].filename)
+            if (files["photo_100"]) await savePhotoFromBuffer(rambuId, "hundred", files["photo_100"].buf, files["photo_100"].filename)
+
+            const full = await prisma.rambu.findUnique({
+                where: { id: rambuId },
+                include: { photos: true, RambuProps: true },
+            })
+            return reply.send(full)
+
+        } else {
+            // JSON LOGIC
+            const body = req.body as any
+            let updates: any = {}
+            try {
+                updates = rambuUpdateSchema.parse(body)
+            } catch (e: any) {
+                app.log.debug({ e }, 'rambuUpdateSchema parse: skip updates')
+            }
+            if (Object.keys(updates).length) {
+                await prisma.rambu.update({ where: { id: rambuId }, data: updates })
+            }
+
+            const yearRaw = body.year ?? body.tahun
+            const costRaw = body.cost_id ?? body.costId
+            const modelRaw = body.model_id ?? body.modelId ?? body.model
+            const simRaw = body.isSimulation ?? body.issimulation ?? body.is_simulation ?? body.IsSimulation
+
+            const propsPayload: any = {
+                rambuId,
+                year: yearRaw != null ? String(yearRaw) : undefined,
+                cost_id: costRaw != null ? Number(costRaw) : undefined,
+                model: modelRaw != null ? Number(modelRaw) : undefined,
+                isSimulation: simRaw != null ? Number(simRaw) : undefined,
+                user_id: (req as any).authUser?.id ?? undefined,
+            }
+            Object.keys(propsPayload).forEach(k => propsPayload[k] === undefined && delete propsPayload[k])
+
+            if (Object.keys(propsPayload).length) {
+                const existingProps = await prisma.rambuProps.findFirst({ where: { rambuId } })
+                if (existingProps) {
+                    await prisma.rambuProps.update({ where: { id: existingProps.id }, data: propsPayload })
+                } else {
+                    await prisma.rambuProps.create({ data: propsPayload })
+                }
+            }
+
+            const full = await prisma.rambu.findUnique({
+                where: { id: rambuId },
+                include: { photos: true, RambuProps: true },
+            })
+            return reply.send(full)
+        }
     })
 
     app.post("/rambuprops/:id", async (req, reply) => {
@@ -615,6 +599,20 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
             ok: true
         })
     });
+
+    //buatkan fungsi route hapus dan masukan ke trash. status diubah jadi "trash"
+    app.put("/rambu-trash/:id", { preHandler: authGuard }, async (req, reply) => {
+        const { id } = req.params as any
+        const rambuId = Number(id)
+        if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
+
+        const updated = await prisma.rambu.update({
+            where: { id: rambuId },
+            data: { status: 'trash' },
+        })
+
+        return reply.send(updated)
+    })
 
     app.put("/rambu-status/:id", { preHandler: authGuard }, async (req, reply) => {
         const { id } = req.params as any
