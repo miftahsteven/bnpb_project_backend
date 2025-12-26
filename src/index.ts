@@ -17,6 +17,13 @@ import provinceGeomRoutes from "./routes/province-geom";
 import authRoutes from "./routes/auth";
 import usersRoutes from "./routes/users";
 
+const ALLOWED_ORIGINS = [
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:5173",
+  "https://mrb.supplydata.id"
+];
 
 
 const app = Fastify({
@@ -26,7 +33,7 @@ const app = Fastify({
 async function main() {
     //await app.register(cors, { origin: "*" });
     await app.register(cors, {
-        origin: "*",
+        origin: ALLOWED_ORIGINS,
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
         //allowedHeaders: ['Authorization', 'Content-Type'],
         //maxAge: 86400,
