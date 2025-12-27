@@ -121,7 +121,8 @@ const rambuCrudRoutes: FastifyPluginAsync = async (app) => {
             description: row.description,
             status: row.status,
             createdAt: row.createdAt,
-
+            lat: row.lat,
+            lng: row.lng,
             categoryName: row.category?.name ?? null,
             disasterTypeName: row.disasterType?.name ?? null,
             provinceName: row.provinces?.prov_name ?? null,
