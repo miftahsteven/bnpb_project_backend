@@ -13,6 +13,7 @@ import photoRoutes from "./routes/photo";
 import locationsRoutes from "./routes/locations";
 import locationsGeomRoutes from "./routes/locations-geom";
 import rambuCrudRoutes from "./routes/rambu-crud"; // ✅ pastikan path betul
+import usersCrudRoutes from "./routes/users-crud";
 import provinceGeomRoutes from "./routes/province-geom";
 import authRoutes from "./routes/auth";
 import usersRoutes from "./routes/users";
@@ -71,6 +72,7 @@ async function main() {
     await app.register(provinceGeomRoutes, { prefix: "/api" });
     await app.register(authRoutes, { prefix: "/api" });
     await app.register(usersRoutes, { prefix: "/api" });
+    await app.register(usersCrudRoutes, {prefix: "/api"});
 
     const port = process.env.PORT ? Number(process.env.PORT) : 8044;
     await app.listen({ port });
