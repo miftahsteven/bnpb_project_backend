@@ -17,6 +17,7 @@ import usersCrudRoutes from "./routes/users-crud";
 import provinceGeomRoutes from "./routes/province-geom";
 import authRoutes from "./routes/auth";
 import usersRoutes from "./routes/users";
+import reportRoutes from "./routes/report";
 
 const ALLOWED_ORIGINS = [
   "http://localhost:3000",
@@ -73,6 +74,7 @@ async function main() {
     await app.register(authRoutes, { prefix: "/api" });
     await app.register(usersRoutes, { prefix: "/api" });
     await app.register(usersCrudRoutes, {prefix: "/api"});
+    await app.register(reportRoutes, {prefix: "/api"});
 
     const port = process.env.PORT ? Number(process.env.PORT) : 8044;
     await app.listen({ port });
