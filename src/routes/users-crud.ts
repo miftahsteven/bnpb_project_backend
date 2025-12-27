@@ -23,7 +23,7 @@ const usersCrudRoutes: FastifyPluginAsync = async (app) => {
             const q = req.query as any;
             
             const page = q.page ? Number(q.page) : 1;
-            const pageSize = q.pageSize ? Number(q.pageSize) : 30; // Default 10 if not provided
+            const pageSize = q.pageSize ? Number(q.pageSize) : 10; // Default 10 if not provided
 
             const where: any = {};
 
