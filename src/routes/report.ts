@@ -54,6 +54,82 @@ const reportRoutes: FastifyPluginAsync = async (fastify, opts) => {
       return reply.status(500).send({ message: 'Internal Server Error', error });
     }
   });
+
+  fastify.get('/report-perprovince', {preHandler: authBearer}, async (request, reply) => {
+    try {
+      // Laporan jumlah data rambu per provinsi
+      const provinces = await prisma.provinces.findMany({
+        select: {
+          prov_name: true,
+          _count: {
+            select: { Rambu: true }
+          }
+        },
+        where: {
+            Rambu: {
+                some: {} // Only get provinces that have at least one Rambu, optional but cleaner for charts
+            }
+        }
+      });
+
+      const data = provinces.map(p => ({
+        label: p.prov_name || 'Unknown',
+        value: p._count.Rambu
+      })).sort((a, b) => b.value - a.value); // Sort by count descending
+
+      return {
+        data
+      };
+    } catch (error) {
+      return reply.status(500).send({ message: 'Internal Server Error', error });
+    }
+  });
+
+  fastify.get('/report-peruser', {preHandler: authBearer}, async (request, reply) => {
+    try {
+      // Laporan jumlah data rambu per user
+      const [users, unassignedCount] = await Promise.all([
+        prisma.users.findMany({
+            select: {
+            name: true,
+            _count: {
+                select: { RambuProps: true }
+            }
+            },
+            where: {
+                RambuProps: {
+                    some: {} // Only get users that have at least one Rambu, optional but cleaner for charts
+                }
+            }
+        }),
+        prisma.rambuProps.count({
+            where: {
+                user_id: null
+            }
+        })
+      ]);
+
+      const data = users.map(u => ({
+        label: u.name || 'Unknown',
+        value: u._count.RambuProps
+      }));
+
+      if (unassignedCount > 0) {
+        data.push({
+            label: "Tidak Diketahui",
+            value: unassignedCount
+        });
+      }
+
+      data.sort((a, b) => b.value - a.value); // Sort by count descending
+
+      return {
+        data
+      };
+    } catch (error) {
+      return reply.status(500).send({ message: 'Internal Server Error', error });
+    }
+  });
 };
 
 export default reportRoutes;
