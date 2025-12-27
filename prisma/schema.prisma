@@ -133,7 +133,7 @@ model satuanKerja {
 
 model users {
   id          Int          @id @default(autoincrement())
-  username    String?      @db.VarChar(100)
+  username    String?      @unique(map: "users_unique") @db.VarChar(100)
   password    String?      @db.VarChar(255)
   name        String?      @db.VarChar(255)
   satker_id   Int?         @default(0)
