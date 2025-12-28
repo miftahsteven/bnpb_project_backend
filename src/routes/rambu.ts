@@ -110,7 +110,9 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
         let meta: any = null
         try {
             meta = await extractMeta(buf)
-        } catch { /* ignore */ }
+        } catch (e) { 
+            console.error("savePhotoFromBuffer meta error:", e)
+        }
 
         const type =
             kind === 'gps' ? photoTypeMap.gps
