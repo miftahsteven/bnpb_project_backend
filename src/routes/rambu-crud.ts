@@ -42,7 +42,21 @@ const rambuCrudRoutes: FastifyPluginAsync = async (app) => {
         if (q.city_id) where.city_id = Number(q.city_id);
         if (q.district_id) where.district_id = Number(q.district_id);
         if (q.subdistrict_id) where.subdistrict_id = Number(q.subdistrict_id);
-        if (q.status) where.status = q.status;
+        if (q.status) {
+            let statuses: string[] = [];
+            if (Array.isArray(q.status)) {
+                statuses = q.status.map((s: any) => String(s));
+            } else if (typeof q.status === 'string') {
+                statuses = q.status.split(',').map((s: string) => s.trim());
+            }
+
+            if (statuses.length > 0) {
+                where.status = { in: statuses };
+            }
+        } else {
+            // Default: exclude trash
+            where.status = { not: 'trash' };
+        }
         if (isSimulation !== undefined && isSimulation !== null && String(isSimulation) !== '') {
             const simVal = Number(isSimulation) === 1 ? 1 : 0
             // jika isSimulation disimpan di relasi RambuProps:
