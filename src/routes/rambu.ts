@@ -358,15 +358,11 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
             const url = saveBufferLocal(filename, file.buf);
             let meta: any = null;
             try {
-                const exif = await exifr.parse(file.buf, { gps: true, exif: true });
-                if (exif) {
-                    meta = await extractMeta(file.buf);
-                    if (exif.latitude && exif.longitude) {
-                        meta.gps = { lat: exif.latitude, lng: exif.longitude };
-                    }
-                    if (exif.DateTimeOriginal) meta.datetime = exif.DateTimeOriginal;
-                }
-            } catch { /* ignore meta errors */ }
+                // Use consistent extractMeta helper
+                meta = await extractMeta(file.buf);
+            } catch (e) { 
+                console.error("Meta extraction error:", e);
+            }
             await prisma.photo.create({
                 data: {
                     rambuId: created.id,
