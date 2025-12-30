@@ -191,9 +191,7 @@ const usersRoutes: FastifyPluginAsync = async (app) => {
     // ===========================
     // DETAIL (SUPERADMIN & MANAGER)
     // ===========================
-    app.get<{
-        Params: { id: string };
-    }>("/users/:id", { preHandler: authBearer }, async (req, reply) => {
+    app.get<{Params: {id: string}}>("/users/:id", { preHandler: authBearer }, async (req, reply) => {
         if (!req.user) return reply.code(401).send({ error: "Unauthorized" });
         if (req.user.role !== ROLE.SUPERADMIN && req.user.role !== ROLE.MANAGER) {
             return reply.code(403).send({ error: "Forbidden" });
