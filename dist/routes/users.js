@@ -37,7 +37,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ROLE = void 0;
-const prisma_1 = require("@/lib/prisma");
+const prisma_1 = require("../lib/prisma");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const crypto_1 = __importDefault(require("crypto"));
 const bcrypt = __importStar(require("bcryptjs"));
@@ -172,9 +172,9 @@ const usersRoutes = async (app) => {
     app.get("/users", { preHandler: authBearer }, async (req, reply) => {
         if (!req.user)
             return reply.code(401).send({ error: "Unauthorized" });
-        if (![exports.ROLE.SUPERADMIN, exports.ROLE.MANAGER].includes(req.user.role)) {
-            return reply.code(403).send({ error: "Forbidden" });
-        }
+        // if (![ROLE.SUPERADMIN, ROLE.MANAGER].includes(req.user.role)) {
+        //     return reply.code(403).send({ error: "Forbidden" });
+        // }
         const users = await prisma_1.prisma.users.findMany({
             orderBy: { id: "desc" },
             select: {
@@ -197,7 +197,7 @@ const usersRoutes = async (app) => {
     app.get("/users/:id", { preHandler: authBearer }, async (req, reply) => {
         if (!req.user)
             return reply.code(401).send({ error: "Unauthorized" });
-        if (![exports.ROLE.SUPERADMIN, exports.ROLE.MANAGER].includes(req.user.role)) {
+        if (req.user.role !== exports.ROLE.SUPERADMIN && req.user.role !== exports.ROLE.MANAGER) {
             return reply.code(403).send({ error: "Forbidden" });
         }
         const id = Number(req.params.id);
@@ -293,6 +293,17 @@ const usersRoutes = async (app) => {
             return reply.code(400).send({ error: "Invalid id" });
         await prisma_1.prisma.users.delete({ where: { id } });
         return reply.send({ ok: true });
+    });
+    app.get("/users/satuan-kerja", async (req, reply) => {
+        //if (!req.user) return reply.code(401).send({ error: "Unauthorized" });
+        const satkerList = await prisma_1.prisma.satuanKerja.findMany({
+            orderBy: { name: "asc" },
+            select: {
+                id: true,
+                name: true,
+            },
+        });
+        return reply.send(satkerList);
     });
 };
 exports.default = usersRoutes;

@@ -5,8 +5,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const xlsx_1 = __importDefault(require("xlsx"));
 const adm_zip_1 = __importDefault(require("adm-zip"));
-const prisma_1 = require("@/lib/prisma");
-const storage_1 = require("@/lib/storage");
+const prisma_1 = require("../lib/prisma");
+const storage_1 = require("../lib/storage");
 const crypto_1 = require("crypto");
 // helper baca excel buffer -> array record
 function readExcel(buf) {
@@ -22,7 +22,7 @@ async function resolveCategoryAndDisaster(jenis, defaults) {
     }
     // contoh sangat sederhana: coba cari Category.name == jenis (case-insensitive)
     const cat = await prisma_1.prisma.category.findFirst({
-        where: { name: { equals: jenis, mode: 'insensitive' } }
+        where: { name: { equals: jenis } }
     });
     // fallback: pakai default kalau ada
     return {
@@ -36,7 +36,7 @@ const importRoutes = async (app) => {
     //  - file: excel (.xlsx)
     //  - imagesZip: (optional) .zip berisi file gambar, dipetakan lewat kolom PhotoGPS/Photo0/Photo50/Photo100
     //  - defaults (opsional): categoryId, disasterTypeId, prov_id, city_id, district_id, subdistrict_id
-    app.post('/import/rambu-excel', { preHandler: app.multipart }, async (req, reply) => {
+    app.post('/import/rambu-excel', async (req, reply) => {
         const q = req.query;
         const defaults = {
             categoryId: q.categoryId ? Number(q.categoryId) : undefined,
@@ -48,19 +48,20 @@ const importRoutes = async (app) => {
         };
         let excelBuf = null;
         let zipBuf = null;
-        const mp = await req.parts();
-        for await (const part of mp) {
-            if (part.file && part.fieldname === 'file') {
+        const parts = req.parts();
+        for await (const part of parts) {
+            if (part.type === 'file') {
                 const chunks = [];
-                for await (const c of part.file)
-                    chunks.push(c);
-                excelBuf = Buffer.concat(chunks);
-            }
-            else if (part.file && part.fieldname === 'imagesZip') {
-                const chunks = [];
-                for await (const c of part.file)
-                    chunks.push(c);
-                zipBuf = Buffer.concat(chunks);
+                for await (const chunk of part.file) {
+                    chunks.push(chunk);
+                }
+                const buf = Buffer.concat(chunks);
+                if (part.fieldname === 'file') {
+                    excelBuf = buf;
+                }
+                else if (part.fieldname === 'imagesZip') {
+                    zipBuf = buf;
+                }
             }
         }
         if (!excelBuf)

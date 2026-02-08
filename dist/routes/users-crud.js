@@ -1,34 +1,28 @@
-import { FastifyPluginAsync } from 'fastify';
-import { prisma } from '../lib/prisma';
-
-async function authGuard(req: any, reply: any) {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const prisma_1 = require("../lib/prisma");
+async function authGuard(req, reply) {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
         return reply.code(401).send({ error: "Unauthorized" });
     }
     const token = authHeader.slice(7).trim();
-    if (!token) return reply.code(401).send({ error: "Unauthorized" });
-
+    if (!token)
+        return reply.code(401).send({ error: "Unauthorized" });
     // Cari user berdasarkan token yang tersimpan
-    const user = await prisma.users.findFirst({ where: { token } });
+    const user = await prisma_1.prisma.users.findFirst({ where: { token } });
     if (!user) {
         return reply.code(401).send({ error: "Unauthorized" });
     }
     req.authUser = { id: user.id, role: user.role };
 }
-
-const usersCrudRoutes: FastifyPluginAsync = async (app) => {
+const usersCrudRoutes = async (app) => {
     app.get("/users-crud", { preHandler: authGuard }, async (req, reply) => {
         try {
-            const q = req.query as any;
-            
+            const q = req.query;
             const page = q.page ? Number(q.page) : 1;
             const pageSize = q.pageSize ? Number(q.pageSize) : 10; // Default 10 if not provided
-
-            const where: any = {
-                role: { not: 9 }
-            };
-
+            const where = {};
             // Search by name or username
             if (q.search) {
                 where.OR = [
@@ -36,17 +30,17 @@ const usersCrudRoutes: FastifyPluginAsync = async (app) => {
                     { username: { contains: q.search } }
                 ];
             }
-
             // Filters
-            if (q.role) where.role = Number(q.role);
-            if (q.satker_id) where.satker_id = Number(q.satker_id);
-            if (q.status) where.status = Number(q.status);
-
+            if (q.role)
+                where.role = Number(q.role);
+            if (q.satker_id)
+                where.satker_id = Number(q.satker_id);
+            if (q.status)
+                where.status = Number(q.status);
             // Filter based on logged-in user's role (optional, based on rambu-crud pattern)
             // If the user wants similar role-based restriction:
-            const authUserId: number | undefined = (req as any).authUser?.id;
-            const authUserRole: number | undefined = (req as any).authUser?.role;
-
+            const authUserId = req.authUser?.id;
+            const authUserRole = req.authUser?.role;
             // Example restriction: Non-superadmin (assume role 1 is superadmin) can only see users in their satker? 
             // The user didn't explicitly ask for this logic for users, but if they want "sangat mirip rambu-crud", 
             // usually user management is stricter. Rambu-crud restricted by satker_id. 
@@ -58,14 +52,13 @@ const usersCrudRoutes: FastifyPluginAsync = async (app) => {
             if (authUserId && authUserRole !== 1) {
                 const usr = await prisma.users.findUnique({ where: { id: authUserId } });
                 if (usr?.satker_id) {
-                    where.satker_id = usr.satker_id; 
+                    where.satker_id = usr.satker_id;
                 }
             }
             */
-
-             const [total, dataRaw] = await Promise.all([
-                prisma.users.count({ where }),
-                prisma.users.findMany({
+            const [total, dataRaw] = await Promise.all([
+                prisma_1.prisma.users.count({ where }),
+                prisma_1.prisma.users.findMany({
                     where,
                     skip: (page - 1) * pageSize,
                     take: pageSize,
@@ -86,7 +79,6 @@ const usersCrudRoutes: FastifyPluginAsync = async (app) => {
                     }
                 })
             ]);
-
             // Format data if needed (flattening or keeping as is)
             const data = dataRaw.map(user => ({
                 id: user.id,
@@ -97,18 +89,16 @@ const usersCrudRoutes: FastifyPluginAsync = async (app) => {
                 satker_id: user.satker_id,
                 satker_name: user.satuanKerja?.name || null
             }));
-
             return reply.send({
                 data,
                 total,
                 page,
                 pageSize,
             });
-
-        } catch (error) {
+        }
+        catch (error) {
             return reply.code(500).send({ message: "Internal Server Error", error });
         }
     });
 };
-
-export default usersCrudRoutes;
+exports.default = usersCrudRoutes;

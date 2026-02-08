@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.photoTypeMap = exports.rambuUpdateSchema = exports.rambuCreateSchema = void 0;
+exports.photoTypeMap = exports.rambuPropsUpdateSchema = exports.rambuUpdateSchema = exports.rambuPropsSchema = exports.rambuCreateSchema = void 0;
 const zod_1 = require("zod");
 const toNum = (v) => {
     if (v === '' || v === null || typeof v === 'undefined')
@@ -17,7 +17,7 @@ const toNum = (v) => {
 const latCoerce = zod_1.z.preprocess((v) => toNum(v), zod_1.z.number().min(-90).max(90));
 const lngCoerce = zod_1.z.preprocess((v) => toNum(v), zod_1.z.number().min(-180).max(180));
 exports.rambuCreateSchema = zod_1.z.object({
-    name: zod_1.z.string().min(1),
+    //name: z.string().min(1),
     description: zod_1.z.string().optional(),
     // lat: z.coerce.number().min(-90).max(90),
     // lng: z.coerce.number().min(-180).max(180),
@@ -31,7 +31,18 @@ exports.rambuCreateSchema = zod_1.z.object({
     subdistrict_id: zod_1.z.coerce.number().int().optional(),
     jmlUnit: zod_1.z.coerce.number().int().optional()
 });
+exports.rambuPropsSchema = zod_1.z.object({
+    id: zod_1.z.coerce.number().int().positive(),
+    year: zod_1.z.coerce.number().int().optional(),
+    cost_id: zod_1.z.coerce.number().int().optional(),
+    model: zod_1.z.coerce.number().int().optional(),
+    isPlanning: zod_1.z.coerce.number().int().optional(),
+    isSimulation: zod_1.z.coerce.number().int().optional(),
+    rambuId: zod_1.z.coerce.number().int().positive(),
+    user_id: zod_1.z.coerce.number().int().positive()
+});
 exports.rambuUpdateSchema = exports.rambuCreateSchema.partial();
+exports.rambuPropsUpdateSchema = exports.rambuPropsSchema.partial();
 // tipe foto:
 // 1: gps_handled, 2: pemasangan 0%, 3: pemasangan 50%, 4: pemasangan 100%
 exports.photoTypeMap = {

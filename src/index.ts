@@ -19,6 +19,7 @@ import authRoutes from "./routes/auth";
 import usersRoutes from "./routes/users";
 import reportRoutes from "./routes/report";
 import excelRoutes from "./routes/excel";
+import openRambuRoutes from "./routes/openrambu";
 
 const ALLOWED_ORIGINS = [
   "http://localhost:3000",
@@ -77,10 +78,12 @@ async function main() {
     await app.register(usersCrudRoutes, {prefix: "/api"});
     await app.register(reportRoutes, {prefix: "/api"});
     await app.register(excelRoutes, {prefix: "/api"});
+    await app.register(openRambuRoutes, {prefix: "/api/public"});
 
     const port = process.env.PORT ? Number(process.env.PORT) : 8044;
     await app.listen({ port });
-    app.log.info(`API ready at http://localhost:${port}`);
+    //app.log.info(`API ready at http://localhost:${port}`);
+    app.log.info(`API ready at ${process.env.BASEURL}:${process.env.PORT}`);
 }
 
 main().catch((e) => {

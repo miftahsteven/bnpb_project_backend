@@ -41,6 +41,7 @@ model Rambu {
   district_id    Int?
   subdistrict_id Int?
   jmlUnit        Int?          @default(1)
+  inputBy        Int?          @default(1) @db.SmallInt
   photos         Photo[]
   category       Category      @relation(fields: [categoryId], references: [id], onUpdate: Restrict, map: "Rambu_Category_FK")
   disasterType   DisasterType  @relation(fields: [disasterTypeId], references: [id], onUpdate: Restrict, map: "Rambu_DisasterType_FK")
@@ -178,4 +179,13 @@ model model {
   id                                 Int          @id @default(autoincrement())
   name                               String?      @db.VarChar(100)
   RambuProps_RambuProps_modelTomodel RambuProps[] @relation("RambuProps_modelTomodel")
+}
+
+model user_openapi {
+  id        Int     @id @default(autoincrement())
+  email     String  @db.Text
+  key       String? @db.Text
+  domain    String? @db.VarChar(255)
+  status    Int?    @default(1) @db.SmallInt
+  institusi String? @db.VarChar(255)
 }

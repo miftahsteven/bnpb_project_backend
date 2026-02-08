@@ -1,9 +1,14 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const prisma_1 = require("../lib/prisma");
 const ref_1 = require("../schemas/ref");
+//import geografis library from https://github.com/drizki/geografis
+const geografis_1 = __importDefault(require("geografis"));
 const refRoutes = async (app) => {
-    // Category
+    // Category`
     app.get('/ref/categories', async () => prisma_1.prisma.category.findMany());
     app.post('/ref/categories', {
         errorHandler: (error, request, reply) => {
@@ -123,6 +128,17 @@ const refRoutes = async (app) => {
             code: 'DISASTERTYPE_DELETED',
             message: 'Hapus Jenis Bencana Berhasil'
         });
+    });
+    app.get('/ref/model', async () => prisma_1.prisma.model.findMany());
+    app.get('/ref/costsource', async () => prisma_1.prisma.costsource.findMany());
+    app.post("/ref/geografis", async (req) => {
+        const { lat, long } = req.body;
+        const village = await geografis_1.default.getNearest(lat, long);
+        return {
+            data: village,
+            message: 'Success',
+            status: 200
+        };
     });
 };
 exports.default = refRoutes;

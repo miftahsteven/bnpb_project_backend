@@ -34,7 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 const locationsGeomRoutes = async (app) => {
-    const prisma = (await Promise.resolve().then(() => __importStar(require('@/lib/prisma')))).prisma;
+    const prisma = (await Promise.resolve().then(() => __importStar(require('../lib/prisma')))).prisma;
     app.get('/locations/province-geojson', async (req, reply) => {
         const { prov_id } = req.query ?? {};
         if (!prov_id)
