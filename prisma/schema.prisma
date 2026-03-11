@@ -141,9 +141,9 @@ model users {
   status      Int?         @default(1)
   token       String?      @db.LongText
   role            Int?         @default(0) @db.SmallInt
-  failedLogin     Int?         @default(0)
+  failedLogin     Int?         @default(0) // Fitur login fail
   lastFailedAt    DateTime?
-  twoFactorSecret String?      @db.VarChar(255)
+  twoFactorSecret String?      @db.VarChar(255) // Fitur MFA Google Auth
   RambuProps      RambuProps[]
   satuanKerja satuanKerja? @relation(fields: [satker_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "users_satuanKerja_FK")
 
