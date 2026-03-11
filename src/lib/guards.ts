@@ -103,11 +103,15 @@ export async function authOrApiKeyGuard(req: any, reply: any) {
         return reply.code(401).send({ message: 'Unauthorized: Missing API Key' });
     }
 
-    const PUBLIC_API_KEY = process.env.VITE_PUBLIC_API_KEY || 'atIZJ3oo9E91Vwu6Cg6x5+fImuZ276Y1k+EDNW+z1kU=';
+    const FALLBACK_KEY = 'atIZJ3oo9E91Vwu6Cg6x5+fImuZ276Y1k+EDNW+z1kU=';
+    const isBypassKey = apiKey === process.env.PUBLIC_API_KEY || 
+                        apiKey === process.env.VITE_PUBLIC_API_KEY || 
+                        apiKey === FALLBACK_KEY;
+
     let userApiKey: any = null;
     let isBypassedPublic = false;
 
-    if (apiKey === PUBLIC_API_KEY) {
+    if (isBypassKey) {
         // Bypass DB check for public frontend key
         isBypassedPublic = true;
         userApiKey = {
@@ -171,6 +175,7 @@ export async function authOrApiKeyGuard(req: any, reply: any) {
                                 userApiKey.institusi?.toLowerCase().includes('frontend') ||
                                 userApiKey.institusi === 'map-public-frontend' ||
                                 userApiKey.key === process.env.VITE_PUBLIC_API_KEY ||
+                                userApiKey.key === process.env.PUBLIC_API_KEY ||
                                 userApiKey.key === 'atIZJ3oo9E91Vwu6Cg6x5+fImuZ276Y1k+EDNW+z1kU=';
 
     if (!isInternalFrontend) {
