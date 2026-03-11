@@ -1,0 +1,194 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Category {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique(map: "Category_UNIQUE")
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  Rambus    Rambu[]
+}
+
+model DisasterType {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique(map: "DisasterType_UNIQUE")
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  Rambus    Rambu[]
+}
+
+model Rambu {
+  id             Int           @id @default(autoincrement())
+  name           String?
+  description    String?
+  lat            Float
+  lng            Float
+  categoryId     Int
+  disasterTypeId Int
+  status         String        @default("draft")
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  prov_id        Int?
+  city_id        Int?
+  district_id    Int?
+  subdistrict_id Int?
+  jmlUnit        Int?          @default(1)
+  inputBy        Int?          @default(1) @db.SmallInt
+  photos         Photo[]
+  category       Category      @relation(fields: [categoryId], references: [id], onUpdate: Restrict, map: "Rambu_Category_FK")
+  disasterType   DisasterType  @relation(fields: [disasterTypeId], references: [id], onUpdate: Restrict, map: "Rambu_DisasterType_FK")
+  cities         cities?       @relation(fields: [city_id], references: [city_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_cities_FK")
+  districts      districts?    @relation(fields: [district_id], references: [dis_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_districts_FK")
+  provinces      provinces?    @relation(fields: [prov_id], references: [prov_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_provinces_FK")
+  subdistricts   subdistricts? @relation(fields: [subdistrict_id], references: [subdis_id], onDelete: Restrict, onUpdate: Restrict, map: "Rambu_subdistricts_FK")
+  RambuProps     RambuProps[]
+
+  @@index([categoryId], map: "Rambu_Category_FK")
+  @@index([disasterTypeId], map: "Rambu_DisasterType_FK")
+  @@index([city_id], map: "Rambu_cities_FK")
+  @@index([district_id], map: "Rambu_districts_FK")
+  @@index([prov_id], map: "Rambu_provinces_FK")
+  @@index([subdistrict_id], map: "Rambu_subdistricts_FK")
+}
+
+model Photo {
+  id        Int      @id @default(autoincrement())
+  rambuId   Int
+  url       String
+  checksum  String?
+  meta      String?  @db.LongText
+  createdAt DateTime @default(now())
+  type      Int?     @db.SmallInt
+  rambu     Rambu    @relation(fields: [rambuId], references: [id], onUpdate: Restrict, map: "Photo_Rambu_FK")
+
+  @@index([rambuId], map: "Photo_Rambu_FK")
+}
+
+model ImportBatch {
+  id        String   @id @default(cuid())
+  source    String
+  status    String
+  report    String?  @db.LongText
+  createdAt DateTime @default(now())
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model cities {
+  city_id     Int           @id
+  city_name   String?       @db.VarChar(255)
+  prov_id     Int?
+  Rambu       Rambu[]
+  satuanKerja satuanKerja[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model districts {
+  dis_id   Int     @id
+  dis_name String? @db.VarChar(255)
+  city_id  Int?
+  ket      String? @db.VarChar(100)
+  Rambu    Rambu[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model provinces {
+  prov_id         Int           @id
+  prov_name       String?       @db.VarChar(255)
+  locationid      Int?
+  status          Int?
+  province_by_dpt Int?
+  geom            String?       @db.LongText
+  Rambu           Rambu[]
+  satuanKerja     satuanKerja[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model subdistricts {
+  subdis_id   Int     @id
+  subdis_name String? @db.VarChar(255)
+  dis_id      Int?
+  kel_id      Int?
+  Rambu       Rambu[]
+}
+
+model satuanKerja {
+  id        Int        @id @default(autoincrement())
+  name      String?    @db.VarChar(255)
+  prov_id   Int?
+  citiy_id  Int?
+  cities    cities?    @relation(fields: [citiy_id], references: [city_id], onDelete: Restrict, onUpdate: Restrict, map: "satuanKerja_cities_FK")
+  provinces provinces? @relation(fields: [prov_id], references: [prov_id], onDelete: Restrict, onUpdate: Restrict, map: "satuanKerja_provinces_FK")
+  users     users[]
+
+  @@index([citiy_id], map: "satuanKerja_cities_FK")
+  @@index([prov_id], map: "satuanKerja_provinces_FK")
+}
+
+model users {
+  id          Int          @id @default(autoincrement())
+  username    String?      @unique(map: "users_unique") @db.VarChar(100)
+  password    String?      @db.VarChar(255)
+  name        String?      @db.VarChar(255)
+  satker_id   Int?         @default(0)
+  status      Int?         @default(1)
+  token       String?      @db.LongText
+  role            Int?         @default(0) @db.SmallInt
+  failedLogin     Int?         @default(0)
+  lastFailedAt    DateTime?
+  twoFactorSecret String?      @db.VarChar(255)
+  RambuProps      RambuProps[]
+  satuanKerja satuanKerja? @relation(fields: [satker_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "users_satuanKerja_FK")
+
+  @@index([satker_id], map: "users_satuanKerja_FK")
+}
+
+model RambuProps {
+  id                            Int         @id @default(autoincrement())
+  year                          String?     @db.VarChar(5)
+  cost_id                       Int?
+  model                         Int?
+  isPlanning                    Int?        @default(0) @db.SmallInt
+  isSimulation                  Int?        @default(0) @db.SmallInt
+  rambuId                       Int?
+  user_id                       Int?
+  createdAt                     DateTime?   @default(now()) @db.DateTime(0)
+  updatedAt                     DateTime?   @db.DateTime(0)
+  Rambu                         Rambu?      @relation(fields: [rambuId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "RambuProps_Rambu_FK")
+  costsource                    costsource? @relation(fields: [cost_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "RambuProps_costsource_FK")
+  model_RambuProps_modelTomodel model?      @relation("RambuProps_modelTomodel", fields: [model], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "RambuProps_model_FK")
+  users                         users?      @relation(fields: [user_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "RambuProps_users_FK")
+
+  @@index([rambuId], map: "RambuProps_Rambu_FK")
+  @@index([cost_id], map: "RambuProps_costsource_FK")
+  @@index([model], map: "RambuProps_model_FK")
+  @@index([user_id], map: "RambuProps_users_FK")
+}
+
+model costsource {
+  id         Int          @id @default(autoincrement())
+  name       String?      @db.VarChar(100)
+  RambuProps RambuProps[]
+}
+
+model model {
+  id                                 Int          @id @default(autoincrement())
+  name                               String?      @db.VarChar(100)
+  RambuProps_RambuProps_modelTomodel RambuProps[] @relation("RambuProps_modelTomodel")
+}
+
+model user_openapi {
+  id        Int     @id @default(autoincrement())
+  email     String  @db.Text
+  key       String? @db.Text
+  domain    String? @db.VarChar(255)
+  status    Int?    @default(1) @db.SmallInt
+  institusi String? @db.VarChar(255)
+}
