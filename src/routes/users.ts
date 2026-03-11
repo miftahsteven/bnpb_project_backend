@@ -508,7 +508,7 @@ const usersRoutes: FastifyPluginAsync = async (app) => {
         return reply.send({ ok: true });
     });
 
-    app.get("/users/satuan-kerja", { preHandler: authOrApiKeyGuard }, async (req, reply) => {
+    app.get("/users/satuan-kerja", { preHandler: authBearer }, async (req, reply) => {
 
         const satkerList = await prisma.satuanKerja.findMany({
             orderBy: { name: "asc" },
