@@ -104,9 +104,11 @@ export async function authOrApiKeyGuard(req: any, reply: any) {
     }
 
     const FALLBACK_KEY = 'atIZJ3oo9E91Vwu6Cg6x5+fImuZ276Y1k+EDNW+z1kU=';
+    const SERVER_FRONTEND_KEY = 'dlfPFYuptjbaRJXdGbxP4r/88d8kaNy3CBgWKf4BVWM=';
     const isBypassKey = apiKey === process.env.PUBLIC_API_KEY || 
                         apiKey === process.env.VITE_PUBLIC_API_KEY || 
-                        apiKey === FALLBACK_KEY;
+                        apiKey === FALLBACK_KEY ||
+                        apiKey === SERVER_FRONTEND_KEY;
 
     let userApiKey: any = null;
     let isBypassedPublic = false;
@@ -176,7 +178,8 @@ export async function authOrApiKeyGuard(req: any, reply: any) {
                                 userApiKey.institusi === 'map-public-frontend' ||
                                 userApiKey.key === process.env.VITE_PUBLIC_API_KEY ||
                                 userApiKey.key === process.env.PUBLIC_API_KEY ||
-                                userApiKey.key === 'atIZJ3oo9E91Vwu6Cg6x5+fImuZ276Y1k+EDNW+z1kU=';
+                                userApiKey.key === 'atIZJ3oo9E91Vwu6Cg6x5+fImuZ276Y1k+EDNW+z1kU=' ||
+                                userApiKey.key === 'dlfPFYuptjbaRJXdGbxP4r/88d8kaNy3CBgWKf4BVWM=';
 
     if (!isInternalFrontend) {
         const clientIp = req.headers['x-forwarded-for'] || req.ip || 'unknown-ip';
