@@ -3,33 +3,12 @@ import { prisma } from '../lib/prisma';
 import { encodeId, decodeId } from '../utils/hashid';
 import jwt from "jsonwebtoken";
 import { ROLE } from '../constants/roles';
+import { authDashboardGuard } from '../lib/guards';
 
-async function authGuard(req: any, reply: any) {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        return reply.code(401).send({ error: "Unauthorized" });
-    }
-    const token = authHeader.slice(7).trim();
-    if (!token) return reply.code(401).send({ error: "Unauthorized" });
 
-    const JWT_SECRET = process.env.JWT_SECRET || "5w6xiQ8WWu25bbKPpVbUimXkXbXwb1X5M58I9ISPneA=";
-    let decoded;
-    try {
-        decoded = jwt.verify(token, JWT_SECRET) as any;
-    } catch (err) {
-        return reply.code(401).send({ error: "Unauthorized: Invalid or expired token" });
-    }
-
-    // Pastikan token benar-benar valid dan sesuai di db untuk sesi saat ini
-    const user = await prisma.users.findFirst({ where: { id: decoded.id, token } });
-    if (!user || user.status !== 1) {
-        return reply.code(401).send({ error: "Unauthorized" });
-    }
-    req.authUser = { id: user.id, role: user.role };
-}
 
 const usersCrudRoutes: FastifyPluginAsync = async (app) => {
-    app.get("/users-crud", { preHandler: authGuard }, async (req, reply) => {
+    app.get("/users-crud", { preHandler: authDashboardGuard }, async (req, reply) => {
         try {
             const q = req.query as any;
             
@@ -124,7 +103,7 @@ const usersCrudRoutes: FastifyPluginAsync = async (app) => {
     });
 
     // POST RESET MFA (Hanya Superadmin/Manager)
-    app.post("/users-crud/:id/reset-mfa", { preHandler: authGuard }, async (req, reply) => {
+    app.post("/users-crud/:id/reset-mfa", { preHandler: authDashboardGuard }, async (req, reply) => {
         try {
             const callerRole = (req as any).authUser?.role;
             if (callerRole !== ROLE.ADMIN && callerRole !== ROLE.SUPERADMIN) {
