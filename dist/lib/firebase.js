@@ -35,7 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getFirebaseApp = getFirebaseApp;
 exports.getRealtimeDb = getRealtimeDb;
-const env_1 = require("@/env");
+const env_1 = require("../env");
 const admin = __importStar(require("firebase-admin"));
 let app = null;
 function getFirebaseApp() {

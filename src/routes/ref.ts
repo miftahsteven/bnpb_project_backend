@@ -1,12 +1,13 @@
 import { FastifyPluginAsync } from 'fastify'
 import { prisma } from '../lib/prisma'
 import { categorySchema, disasterTypeSchema } from '../schemas/ref'
+import { authDashboardGuard, authOrApiKeyGuard } from '../lib/guards'
 //import geografis library from https://github.com/drizki/geografis
 import geografis from 'geografis'
 
 const refRoutes: FastifyPluginAsync = async (app) => {
-    // Category`
-    app.get('/ref/categories', async () => prisma.category.findMany())
+    // Category
+    app.get('/ref/categories', { preHandler: authOrApiKeyGuard }, async () => prisma.category.findMany())
     app.post('/ref/categories', {
         errorHandler: (error: any, request: any, reply: any) => {
             //reply.code(400).send({ error: 'Invalid data format' })
@@ -69,7 +70,7 @@ const refRoutes: FastifyPluginAsync = async (app) => {
     })
 
     // DisasterType
-    app.get('/ref/disaster-types', async () => prisma.disasterType.findMany())
+    app.get('/ref/disaster-types', { preHandler: authOrApiKeyGuard }, async () => prisma.disasterType.findMany())
     app.post('/ref/disaster-types', {
         errorHandler: (error: any, request: any, reply: any) => {
             if (error.code === 'P2002' && error.meta?.target?.includes('DisasterType_UNIQUE')) {
@@ -125,8 +126,8 @@ const refRoutes: FastifyPluginAsync = async (app) => {
         })
     })
 
-    app.get('/ref/model', async () => prisma.model.findMany())
-    app.get('/ref/costsource', async () => prisma.costsource.findMany())
+    app.get('/ref/model', { preHandler: authOrApiKeyGuard }, async () => prisma.model.findMany())
+    app.get('/ref/costsource', { preHandler: authOrApiKeyGuard }, async () => prisma.costsource.findMany())
 
     app.post("/ref/geografis", async (req) => {
 

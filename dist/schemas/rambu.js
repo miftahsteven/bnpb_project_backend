@@ -25,6 +25,7 @@ exports.rambuCreateSchema = zod_1.z.object({
     lng: lngCoerce,
     categoryId: zod_1.z.coerce.number().int().positive(),
     disasterTypeId: zod_1.z.coerce.number().int().positive(),
+    status: zod_1.z.string().optional(),
     prov_id: zod_1.z.coerce.number().int().optional(),
     city_id: zod_1.z.coerce.number().int().optional(),
     district_id: zod_1.z.coerce.number().int().optional(),

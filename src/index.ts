@@ -4,6 +4,7 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { ZodTypeProvider } from "fastify-type-provider-zod";
+import helmet from "@fastify/helmet";
 import authPlugin from "./plugins/auth";
 
 import refRoutes from "./routes/ref";
@@ -35,6 +36,19 @@ const app = Fastify({
 }).withTypeProvider<ZodTypeProvider>();
 
 async function main() {
+    // Menambahkan perlindungan khusus untuk clickjacking sesuai rekomendasi Security Tester
+    await app.register(helmet, {
+      frameguard: {
+        action: 'deny' // Menambahkan X-Frame-Options: DENY
+      },
+      contentSecurityPolicy: {
+        directives: {
+          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          "frame-ancestors": ["'none'"], // Menambahkan perlindungan dari frame-ancestors
+        },
+      },
+    });
+
     //await app.register(cors, { origin: "*" });
     await app.register(cors, {
         origin: ALLOWED_ORIGINS,
@@ -63,6 +77,34 @@ async function main() {
     });
 
     app.get("/health", () => ({ ok: true }));
+
+    // Global Error Handler
+    app.setErrorHandler(function (error, request, reply) {
+      // Selalu log error lengkap ke terminal server (logger internal Fastify)
+      this.log.error(error);
+
+      // Pastikan error formating (Zod / schema validation) tetap dikembalikan semestinya jika diperlukan
+      if (error.validation) {
+         return reply.status(400).send({
+             message: "Terjadi kesalahan validasi data.",
+             details: error.validation
+         });
+      }
+
+      // Jika error bukan dari internal system / library dan sudah memiliki status khusus
+      if (error.statusCode && error.statusCode < 500) {
+          return reply.status(error.statusCode).send({
+              message: error.message
+          });
+      }
+
+      // Pesan generic untuk error lainnya (Bocornya PRISMA, SQL, dll akan tertahan disini)
+      // Sengaja tidak mengirimkan detail error ke sisi user (frontend)
+      return reply.status(500).send({
+         message: "Terjadi kesalahan pada sistem. Silakan coba beberapa saat lagi.",
+         statusCode: 500
+      });
+    });
 
     // ✅ Semua route harus sebelum listen()
     await app.register(refRoutes, { prefix: "/api" });

@@ -24,6 +24,7 @@ export const rambuCreateSchema = z.object({
     lng: lngCoerce,
     categoryId: z.coerce.number().int().positive(),
     disasterTypeId: z.coerce.number().int().positive(),
+    status: z.string().optional(),
     prov_id: z.coerce.number().int().optional(),
     city_id: z.coerce.number().int().optional(),
     district_id: z.coerce.number().int().optional(),

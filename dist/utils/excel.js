@@ -6,7 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.excelRowSchema = void 0;
 exports.parseRambuExcel = parseRambuExcel;
 const xlsx_1 = __importDefault(require("xlsx"));
-const rambu_1 = require("@/schemas/rambu");
+const rambu_1 = require("../schemas/rambu");
 exports.excelRowSchema = rambu_1.rambuCreateSchema.extend({
 // dukung kolom tambahan jika perlu
 });

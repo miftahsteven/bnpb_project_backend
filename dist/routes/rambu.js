@@ -7,7 +7,10 @@ const prisma_1 = require("../lib/prisma");
 const rambu_1 = require("../schemas/rambu");
 const crypto_1 = require("crypto");
 const storage_1 = require("../lib/storage");
+const guards_1 = require("../lib/guards");
+const hashid_1 = require("../utils/hashid");
 const exifr_1 = __importDefault(require("exifr"));
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 // Simple auth guard (pakai secret yang sama dengan signToken)
 // tidak menggunakan env JWVT_SECRET, token dikirim melalui header dan mengandung user id, tokenpun disimpan dalam table users.
 // jika sesuai maka data bisa diakses
@@ -19,13 +22,22 @@ async function authGuard(req, reply) {
     const token = authHeader.slice(7).trim();
     if (!token)
         return reply.code(401).send({ error: "Unauthorized" });
-    // Cari user berdasarkan token yang tersimpan
-    const user = await prisma_1.prisma.users.findFirst({ where: { token } });
-    if (!user) {
+    const JWT_SECRET = process.env.JWT_SECRET || "5w6xiQ8WWu25bbKPpVbUimXkXbXwb1X5M58I9ISPneA=";
+    let decoded;
+    try {
+        decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
+    }
+    catch (err) {
+        return reply.code(401).send({ error: "Unauthorized: Invalid or expired token" });
+    }
+    // Pastikan token benar-benar valid dan sesuai di db untuk sesi saat ini
+    const user = await prisma_1.prisma.users.findFirst({ where: { id: decoded.id, token } });
+    if (!user || user.status !== 1) {
         return reply.code(401).send({ error: "Unauthorized" });
     }
     req.authUser = { id: user.id, role: user.role };
 }
+// authOrApiKeyGuard dan extractOriginDomain diimport dari ../lib/guards
 // =========================
 // ✅ Google Drive Utilities
 // =========================
@@ -138,10 +150,16 @@ const rambuRoutes = async (app) => {
         catch { /* ignore */ }
         return [];
     }
-    // ✅ GET LIST (TIDAK DIUBAH AGAR MAP TETAP JALAN)
-    app.get("/rambu", async (req) => {
+    // ✅ GET LIST (TIDAK DIUBAH AGAR MAP TETAP JALAN - Sekarang dilindungi oleh hybrid authOrApiKeyGuard)
+    app.get("/rambu", { preHandler: guards_1.authOrApiKeyGuard }, async (req) => {
         const q = req.query;
-        return prisma_1.prisma.rambu.findMany({
+        // Jika request dari API Key (open map publik) dan tidak ada filter status eksplisit,
+        // paksa hanya tampilkan data yang sudah "published"
+        const isApiKeyAccess = !!req.headers['x-api-key'];
+        const statusFilter = q.status
+            ? String(q.status)
+            : isApiKeyAccess ? 'published' : undefined;
+        const results = await prisma_1.prisma.rambu.findMany({
             where: {
                 categoryId: q.categoryId ? Number(q.categoryId) : undefined,
                 disasterTypeId: q.disasterTypeId ? Number(q.disasterTypeId) : undefined,
@@ -152,6 +170,32 @@ const rambuRoutes = async (app) => {
                 ...(q.isSimulation !== undefined
                     ? { RambuProps: { some: { isSimulation: Number(q.isSimulation) === 1 ? 1 : 0 } } }
                     : {}),
+                ...(statusFilter ? { status: statusFilter } : {}),
+                ...(q.modelId ? { RambuProps: { some: { model: Number(q.modelId) } } } : {}),
+                ...(q.costsourceId
+                    ? { RambuProps: { some: { costsource: { is: { id: Number(q.costsourceId) } } } } }
+                    : {}),
+            },
+            include: { photos: true, RambuProps: true },
+            orderBy: { createdAt: "desc" },
+        });
+        return results.map(r => ({ ...r, id: (0, hashid_1.encodeId)(r.id) }));
+    });
+    //GET All Rambu untuk dashboard (semua status, hanya user yang sudah login)
+    app.get("/rambu-all-dashboard", { preHandler: guards_1.authDashboardGuard }, async (req) => {
+        const q = req.query;
+        const results = await prisma_1.prisma.rambu.findMany({
+            where: {
+                categoryId: q.categoryId ? Number(q.categoryId) : undefined,
+                disasterTypeId: q.disasterTypeId ? Number(q.disasterTypeId) : undefined,
+                prov_id: q.prov_id ? Number(q.prov_id) : undefined,
+                city_id: q.city_id ? Number(q.city_id) : undefined,
+                district_id: q.district_id ? Number(q.district_id) : undefined,
+                subdistrict_id: q.subdistrict_id ? Number(q.subdistrict_id) : undefined,
+                ...(q.isSimulation !== undefined
+                    ? { RambuProps: { some: { isSimulation: Number(q.isSimulation) === 1 ? 1 : 0 } } }
+                    : {}),
+                // Status: gunakan query param jika ada, jika tidak tampilkan semua (beda dengan route publik)
                 ...(q.status ? { status: String(q.status) } : {}),
                 ...(q.modelId ? { RambuProps: { some: { model: Number(q.modelId) } } } : {}),
                 ...(q.costsourceId
@@ -161,12 +205,13 @@ const rambuRoutes = async (app) => {
             include: { photos: true, RambuProps: true },
             orderBy: { createdAt: "desc" },
         });
+        return results.map(r => ({ ...r, id: (0, hashid_1.encodeId)(r.id) }));
     });
-    app.get("/rambu/:id", async (req, reply) => {
+    app.get("/rambu/:id", { preHandler: guards_1.authDashboardGuard }, async (req, reply) => {
         try {
             const { id } = req.params;
-            const rambuId = Number(id);
-            if (!Number.isFinite(rambuId))
+            const rambuId = (0, hashid_1.decodeId)(id);
+            if (rambuId === null)
                 return reply.code(400).send({ error: 'Invalid id' });
             const data = await prisma_1.prisma.rambu.findUnique({
                 where: { id: rambuId },
@@ -177,18 +222,18 @@ const rambuRoutes = async (app) => {
             });
             if (!data)
                 return reply.code(404).send({ error: 'Not found' });
-            return reply.send(data);
+            return reply.send({ ...data, id: (0, hashid_1.encodeId)(data.id) });
         }
         catch (e) {
             req.log?.error(e);
             return reply.code(500).send({ error: 'Internal error' });
         }
     });
-    app.get("/rambu-detail/:id", async (req, reply) => {
+    app.get("/rambu-detail/:id", { preHandler: guards_1.authDashboardGuard }, async (req, reply) => {
         try {
             const { id } = req.params;
-            const rambuId = Number(id);
-            if (!Number.isFinite(rambuId))
+            const rambuId = (0, hashid_1.decodeId)(id);
+            if (rambuId === null)
                 return reply.code(400).send({ error: 'Invalid id' });
             const data = await prisma_1.prisma.rambu.findUnique({
                 where: { id: rambuId },
@@ -207,7 +252,7 @@ const rambuRoutes = async (app) => {
             if (!data)
                 return reply.code(404).send({ error: 'Not found' });
             const dataFormatted = {
-                id: data.id,
+                id: (0, hashid_1.encodeId)(data.id),
                 name: data.name,
                 description: data.description,
                 lat: data.lat,
@@ -240,8 +285,8 @@ const rambuRoutes = async (app) => {
     app.get("/rambu-map-detail/:id", async (req, reply) => {
         try {
             const { id } = req.params;
-            const rambuId = Number(id);
-            if (!Number.isFinite(rambuId))
+            const rambuId = (0, hashid_1.decodeId)(id);
+            if (rambuId === null)
                 return reply.code(400).send({ error: 'Invalid id' });
             const data = await prisma_1.prisma.rambu.findUnique({
                 where: { id: rambuId },
@@ -253,7 +298,7 @@ const rambuRoutes = async (app) => {
             if (!data)
                 return reply.code(404).send({ error: 'Not found' });
             const dataFormatted = {
-                id: data.id,
+                id: (0, hashid_1.encodeId)(data.id),
                 name: data.name,
                 description: data.description,
                 lat: data.lat,
@@ -279,7 +324,7 @@ const rambuRoutes = async (app) => {
     // ======================================================
     // ✅ CREATE RAMBU — upload file + Google Drive URL
     // ======================================================
-    app.post("/rambu", { preHandler: authGuard }, async (req, reply) => {
+    app.post("/rambu", { preHandler: guards_1.authDashboardGuard }, async (req, reply) => {
         const parts = req.parts();
         const fields = {};
         const files = {};
@@ -367,7 +412,7 @@ const rambuRoutes = async (app) => {
             where: { id: created.id },
             include: { photos: true, RambuProps: true },
         });
-        reply.code(201).send(full);
+        reply.code(201).send({ ...full, id: (0, hashid_1.encodeId)(full.id) });
     });
     // ======================================================
     // ✅ UPDATE RAMBU — replace optional photo
@@ -378,10 +423,10 @@ const rambuRoutes = async (app) => {
     // ======================================================
     // UPDATE RAMBU — PATCH — handles both JSON and Multipart
     // ======================================================
-    app.patch("/rambu/:id", { preHandler: authGuard }, async (req, reply) => {
+    app.patch("/rambu/:id", { preHandler: guards_1.authDashboardGuard }, async (req, reply) => {
         const { id } = req.params;
-        const rambuId = Number(id);
-        if (!Number.isFinite(rambuId))
+        const rambuId = (0, hashid_1.decodeId)(id);
+        if (rambuId === null)
             return reply.code(400).send({ error: 'Invalid id' });
         const contentType = req.headers['content-type'] || '';
         if (contentType.includes('multipart/form-data')) {
@@ -481,7 +526,7 @@ const rambuRoutes = async (app) => {
                 where: { id: rambuId },
                 include: { photos: true, RambuProps: true },
             });
-            return reply.send(full);
+            return reply.send({ ...full, id: (0, hashid_1.encodeId)(full.id) });
         }
         else {
             // JSON LOGIC
@@ -522,7 +567,7 @@ const rambuRoutes = async (app) => {
                 where: { id: rambuId },
                 include: { photos: true, RambuProps: true },
             });
-            return reply.send(full);
+            return reply.send({ ...full, id: (0, hashid_1.encodeId)(full.id) });
         }
     });
     app.post("/rambuprops/:id", async (req, reply) => {
@@ -545,10 +590,10 @@ const rambuRoutes = async (app) => {
         });
         reply.send(updated);
     });
-    app.delete("/rambu/:id", { preHandler: authGuard }, async (req, reply) => {
+    app.delete("/rambu/:id", { preHandler: guards_1.authDashboardGuard }, async (req, reply) => {
         const { id } = req.params;
-        const rambuId = Number(id);
-        if (!Number.isFinite(rambuId))
+        const rambuId = (0, hashid_1.decodeId)(id);
+        if (rambuId === null)
             return reply.code(400).send({ error: 'Invalid id' });
         // Hapus foto terkait
         await prisma_1.prisma.photo.deleteMany({ where: { rambuId } });
@@ -563,21 +608,21 @@ const rambuRoutes = async (app) => {
         });
     });
     //buatkan fungsi route hapus dan masukan ke trash. status diubah jadi "trash"
-    app.put("/rambu-trash/:id", { preHandler: authGuard }, async (req, reply) => {
+    app.put("/rambu-trash/:id", { preHandler: guards_1.authDashboardGuard }, async (req, reply) => {
         const { id } = req.params;
-        const rambuId = Number(id);
-        if (!Number.isFinite(rambuId))
+        const rambuId = (0, hashid_1.decodeId)(id);
+        if (rambuId === null)
             return reply.code(400).send({ error: 'Invalid id' });
         const updated = await prisma_1.prisma.rambu.update({
             where: { id: rambuId },
             data: { status: 'trash' },
         });
-        return reply.send(updated);
+        return reply.send({ ...updated, id: (0, hashid_1.encodeId)(updated.id) });
     });
-    app.put("/rambu-status/:id", { preHandler: authGuard }, async (req, reply) => {
+    app.put("/rambu-status/:id", { preHandler: guards_1.authDashboardGuard }, async (req, reply) => {
         const { id } = req.params;
-        const rambuId = Number(id);
-        if (!Number.isFinite(rambuId))
+        const rambuId = (0, hashid_1.decodeId)(id);
+        if (rambuId === null)
             return reply.code(400).send({ error: 'Invalid id' });
         const body = req.body;
         const status = body.status;
@@ -588,7 +633,7 @@ const rambuRoutes = async (app) => {
             where: { id: rambuId },
             data: { status: status.trim() },
         });
-        return reply.send(updated);
+        return reply.send({ ...updated, id: (0, hashid_1.encodeId)(updated.id) });
     });
 };
 exports.default = rambuRoutes;

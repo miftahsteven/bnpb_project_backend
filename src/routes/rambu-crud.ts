@@ -1,5 +1,7 @@
 import { FastifyPluginAsync } from "fastify";
 import { prisma } from "../lib/prisma";
+import { encodeId } from "../utils/hashid";
+import jwt from "jsonwebtoken";
 
 
 async function authGuard(req: any, reply: any) {
@@ -10,9 +12,17 @@ async function authGuard(req: any, reply: any) {
     const token = authHeader.slice(7).trim();
     if (!token) return reply.code(401).send({ error: "Unauthorized" });
 
-    // Cari user berdasarkan token yang tersimpan
-    const user = await prisma.users.findFirst({ where: { token } });
-    if (!user) {
+    const JWT_SECRET = process.env.JWT_SECRET || "5w6xiQ8WWu25bbKPpVbUimXkXbXwb1X5M58I9ISPneA=";
+    let decoded;
+    try {
+        decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (err) {
+        return reply.code(401).send({ error: "Unauthorized: Invalid or expired token" });
+    }
+
+    // Pastikan token benar-benar valid dan sesuai di db untuk sesi saat ini
+    const user = await prisma.users.findFirst({ where: { id: decoded.id, token } });
+    if (!user || user.status !== 1) {
         return reply.code(401).send({ error: "Unauthorized" });
     }
     req.authUser = { id: user.id, role: user.role };
@@ -130,7 +140,7 @@ const rambuCrudRoutes: FastifyPluginAsync = async (app) => {
         ]);
 
         const data = dataRaw.map((row) => ({
-            id: row.id,
+            id: encodeId(row.id),
             name: row.name,
             description: row.description,
             status: row.status,
@@ -146,7 +156,7 @@ const rambuCrudRoutes: FastifyPluginAsync = async (app) => {
             //tambahkan properti dari RambuProps jika ada
             ...(row.RambuProps?.[0]
                 ? {
-                    idProp: row.RambuProps[0].id,
+                    idProp: encodeId(row.RambuProps[0].id),
                     createdAtProp: row.RambuProps[0].createdAt,
                     updatedAtProp: row.RambuProps[0].updatedAt,
                     year: row.RambuProps[0].year,
@@ -154,7 +164,7 @@ const rambuCrudRoutes: FastifyPluginAsync = async (app) => {
                     model: row.RambuProps[0].model,
                     isPlanning: row.RambuProps[0].isPlanning,
                     isSimulation: row.RambuProps[0].isSimulation,
-                    rambuIdProp: row.RambuProps[0].rambuId,
+                    rambuIdProp: row.RambuProps[0].rambuId ? encodeId(row.RambuProps[0].rambuId) : null,
                     user_id: row.RambuProps[0].users?.id,
                     satker_id: row.RambuProps[0].users?.satker_id,
                 }

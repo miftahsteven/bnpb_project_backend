@@ -1,6 +1,12 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const prisma_1 = require("../lib/prisma");
+const hashid_1 = require("../utils/hashid");
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const roles_1 = require("../constants/roles");
 async function authGuard(req, reply) {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -9,9 +15,17 @@ async function authGuard(req, reply) {
     const token = authHeader.slice(7).trim();
     if (!token)
         return reply.code(401).send({ error: "Unauthorized" });
-    // Cari user berdasarkan token yang tersimpan
-    const user = await prisma_1.prisma.users.findFirst({ where: { token } });
-    if (!user) {
+    const JWT_SECRET = process.env.JWT_SECRET || "5w6xiQ8WWu25bbKPpVbUimXkXbXwb1X5M58I9ISPneA=";
+    let decoded;
+    try {
+        decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
+    }
+    catch (err) {
+        return reply.code(401).send({ error: "Unauthorized: Invalid or expired token" });
+    }
+    // Pastikan token benar-benar valid dan sesuai di db untuk sesi saat ini
+    const user = await prisma_1.prisma.users.findFirst({ where: { id: decoded.id, token } });
+    if (!user || user.status !== 1) {
         return reply.code(401).send({ error: "Unauthorized" });
     }
     req.authUser = { id: user.id, role: user.role };
@@ -22,7 +36,9 @@ const usersCrudRoutes = async (app) => {
             const q = req.query;
             const page = q.page ? Number(q.page) : 1;
             const pageSize = q.pageSize ? Number(q.pageSize) : 10; // Default 10 if not provided
-            const where = {};
+            const where = {
+                role: { not: 9 }
+            };
             // Search by name or username
             if (q.search) {
                 where.OR = [
@@ -81,7 +97,7 @@ const usersCrudRoutes = async (app) => {
             ]);
             // Format data if needed (flattening or keeping as is)
             const data = dataRaw.map(user => ({
-                id: user.id,
+                id: (0, hashid_1.encodeId)(user.id),
                 username: user.username,
                 name: user.name,
                 role: user.role,
@@ -95,6 +111,29 @@ const usersCrudRoutes = async (app) => {
                 page,
                 pageSize,
             });
+        }
+        catch (error) {
+            return reply.code(500).send({ message: "Internal Server Error", error });
+        }
+    });
+    // POST RESET MFA (Hanya Superadmin/Manager)
+    app.post("/users-crud/:id/reset-mfa", { preHandler: authGuard }, async (req, reply) => {
+        try {
+            const callerRole = req.authUser?.role;
+            if (callerRole !== roles_1.ROLE.ADMIN && callerRole !== roles_1.ROLE.SUPERADMIN) {
+                return reply.code(403).send({ message: "Forbidden" });
+            }
+            const params = req.params;
+            const decodedIdArray = (0, hashid_1.decodeId)(params.id);
+            const decodedId = Array.isArray(decodedIdArray) ? decodedIdArray[0] : decodedIdArray;
+            if (!decodedId) {
+                return reply.code(400).send({ message: "ID Rambu tidak valid" });
+            }
+            await prisma_1.prisma.users.update({
+                where: { id: decodedId },
+                data: { twoFactorSecret: null }
+            });
+            return reply.send({ message: "MFA berhasil direset. User dapat melakukan scan QR dari awal pada sesi login berikutnya." });
         }
         catch (error) {
             return reply.code(500).send({ message: "Internal Server Error", error });

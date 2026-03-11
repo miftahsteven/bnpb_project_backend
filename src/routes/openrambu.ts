@@ -37,74 +37,42 @@ export default async function openRambuRoutes(fastify: FastifyInstance) {
     skipOnError: true
   });
 
-  // Middleware-like function for API Key validation
-  const validatePublicApiKey = async (req: FastifyRequest, reply: FastifyReply) => {
-    const apiKey = req.headers['x-api-key'];
+  // Global Middleware for API Key validation
+  fastify.addHook('preHandler', async (request, reply) => {
+    // Exclude registrasi endpoint from API key validation
+    if (request.url.includes('/registrasi')) {
+      return;
+    }
+
+    const apiKey = request.headers['x-api-key'];
 
     if (!apiKey) {
-      return reply.code(401).send({ message: 'Unauthorized: Invalid or missing API Key' });
-    }
-
-    // Allow hardcoded public API key for immediate access
-    // if (apiKey === 'bnpb-open-data-2025') {
-    //   return; // Valid key, proceed
-    // }
-
-    // Check if API key exists in user_openapi table
-    const user = await prisma.user_openapi.findFirst({
-      where: {
-        key: apiKey as string,
-        status: 1
-      }
-    });
-
-    if (!user) {
-      return reply.code(401).send({ message: 'Unauthorized: Invalid or missing API Key' });
-    }
-
-    // Status 1: Open API Users (JSON access)
-    // Status 0: Internal/Public Download (Excel/Count) - strictly for 'bnpb-open-data-2025'
-    if (user.status === 1) {
-      return; // Valid Open API user
-    }
-    
-    // if (user.status === 0 && user.key === 'bnpb-open-data-2025') {
-    //   return; // Valid Download/Count access
-    // }
-
-    return reply.code(401).send({ message: 'Unauthorized: Invalid API Key status' });
-  };
-
-  const validateExcelPublicApiKey = async (req: FastifyRequest, reply: FastifyReply) => {
-    const apiKey = req.headers['x-api-key'];
-
-    if (!apiKey) {
-      return reply.code(401).send({ message: 'Unauthorized: Invalid or missing API Key' });
-    }
-
-    //Allow hardcoded public API key for immediate access
-    if (apiKey === 'bnpb-open-data-2025') {
-      return; // Valid key, proceed
+      return reply.code(401).send({ message: 'Unauthorized: Api Key Wajib Diisi' });
     }
 
     // Check if API key exists in user_openapi table
     const user = await prisma.user_openapi.findFirst({
       where: {
         key: apiKey as string,
-        status: 0  // Changed from 0 to 1 to match active API keys
+        //status: { in: [1] }
       }
     });
 
-    if (!user) {
-      return reply.code(401).send({ message: 'Unauthorized: Invalid or missing API Key' });
+    //if status user = 0
+    if (user?.status === 0) {
+      return reply.code(401).send({ message: 'Unauthorized: Akun Kamu Ter-suspend. Hubungi Admin' });
     }
-  };
+
+    if (!user) {
+      return reply.code(401).send({ message: 'Unauthorized: API Key Tidak Terdaftar' });
+    }
+  });
 
   /**
    * @route   GET /api/public/provinces
    * @desc    Get all provinces
    */
-  fastify.get('/provinces', { preHandler: validatePublicApiKey }, async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/provinces', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const provinces = await prisma.provinces.findMany({
         select: { prov_id: true, prov_name: true }
@@ -126,7 +94,7 @@ export default async function openRambuRoutes(fastify: FastifyInstance) {
    * @route   GET /api/public/cities
    * @desc    Get cities by province ID
    */
-  fastify.get<{ Querystring: CityQuery }>('/cities', { preHandler: validatePublicApiKey }, async (request, reply) => {
+  fastify.get<{ Querystring: CityQuery }>('/cities', async (request, reply) => {
     try {
       const { prov_id } = request.query;
       if (!prov_id) return reply.code(400).send({ message: 'prov_id is required' });
@@ -153,7 +121,7 @@ export default async function openRambuRoutes(fastify: FastifyInstance) {
    * @route   GET /api/public/rambu
    * @desc    Get published rambu data
    */
-  fastify.get<{ Querystring: RambuQuery }>('/rambu', { preHandler: validatePublicApiKey }, async (request, reply) => {
+  fastify.get<{ Querystring: RambuQuery }>('/rambu', async (request, reply) => {
     try {
       const { provinsi_id, city_id } = request.query;
 
@@ -237,7 +205,7 @@ export default async function openRambuRoutes(fastify: FastifyInstance) {
    * @route   GET /api/public/rambu
    * @desc    Get published rambu data
    */
-  fastify.get<{ Querystring: RambuQuery }>('/rambu-excel', { preHandler: validateExcelPublicApiKey }, async (request, reply) => {
+  fastify.get<{ Querystring: RambuQuery }>('/rambu-excel', async (request, reply) => {
     try {
       const { provinsi_id, city_id } = request.query;
 
@@ -321,7 +289,7 @@ export default async function openRambuRoutes(fastify: FastifyInstance) {
    * @route   GET /api/public/rambu/count
    * @desc    Get count of published rambu data (lightweight endpoint)
    */
-  fastify.get<{ Querystring: RambuQuery }>('/rambu/count', { preHandler: validateExcelPublicApiKey }, async (request, reply) => {
+  fastify.get<{ Querystring: RambuQuery }>('/rambu/count', async (request, reply) => {
     try {
       const { provinsi_id, city_id } = request.query;
 

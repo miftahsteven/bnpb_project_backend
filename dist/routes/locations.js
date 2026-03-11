@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 const turf = __importStar(require("@turf/turf"));
+const guards_1 = require("../lib/guards");
 const FALLBACK_BBOX = {
     // prov_id: [minLng, minLat, maxLng, maxLat]
     11: [106.6, -6.4, 107.1, -5.9], // DKI (perkiraan)
@@ -57,7 +58,7 @@ function mapSubdistrict(s) {
 const locationsRoutes = async (app) => {
     const prisma = (await Promise.resolve().then(() => __importStar(require('../lib/prisma')))).prisma;
     // Provinces
-    app.get('/locations/provinces', async (req) => {
+    app.get('/locations/provinces', { preHandler: guards_1.authOrApiKeyGuard }, async (req) => {
         const { q, limit } = req.query ?? {};
         const take = Math.min(Number(limit) || 100, 500);
         const rows = await prisma.provinces.findMany({
@@ -69,7 +70,7 @@ const locationsRoutes = async (app) => {
         return rows.map(mapProvince);
     });
     // Cities by province
-    app.get('/locations/cities', async (req, reply) => {
+    app.get('/locations/cities', { preHandler: guards_1.authOrApiKeyGuard }, async (req, reply) => {
         const { prov_id, q, limit } = req.query ?? {};
         if (!prov_id)
             return reply.code(400).send({ error: 'prov_id is required' });
@@ -86,7 +87,7 @@ const locationsRoutes = async (app) => {
         return rows.map(mapCity);
     });
     // Districts by city
-    app.get('/locations/districts', async (req, reply) => {
+    app.get('/locations/districts', { preHandler: guards_1.authOrApiKeyGuard }, async (req, reply) => {
         const { city_id, q, limit } = req.query ?? {};
         if (!city_id)
             return reply.code(400).send({ error: 'city_id is required' });
@@ -103,7 +104,7 @@ const locationsRoutes = async (app) => {
         return rows.map(mapDistrict);
     });
     // Subdistricts by district
-    app.get('/locations/subdistricts', async (req, reply) => {
+    app.get('/locations/subdistricts', { preHandler: guards_1.authOrApiKeyGuard }, async (req, reply) => {
         const { district_id, q, limit } = req.query ?? {};
         if (!district_id)
             return reply.code(400).send({ error: 'district_id is required' });
@@ -119,7 +120,7 @@ const locationsRoutes = async (app) => {
         });
         return rows.map(mapSubdistrict);
     });
-    app.get('/province-bbox', async (req, reply) => {
+    app.get('/province-bbox', { preHandler: guards_1.authOrApiKeyGuard }, async (req, reply) => {
         const prov_id = Number(req.query.prov_id);
         if (!prov_id)
             return reply.code(400).send({ error: 'prov_id required' });

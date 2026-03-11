@@ -3,9 +3,11 @@ import { prisma } from "../lib/prisma";
 import { rambuCreateSchema, rambuUpdateSchema, photoTypeMap } from "../schemas/rambu";
 import { randomUUID } from "crypto";
 import { saveBufferLocal, sha256 } from "../lib/storage";
+import { authOrApiKeyGuard, authDashboardGuard } from "../lib/guards";
+import { encodeId, decodeId } from "../utils/hashid";
 import exifr from "exifr";
 import { is } from "zod/v4/locales";
-//import jwt from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { z } from 'zod'
 
@@ -27,13 +29,24 @@ async function authGuard(req: any, reply: any) {
     const token = authHeader.slice(7).trim();
     if (!token) return reply.code(401).send({ error: "Unauthorized" });
 
-    // Cari user berdasarkan token yang tersimpan
-    const user = await prisma.users.findFirst({ where: { token } });
-    if (!user) {
+    const JWT_SECRET = process.env.JWT_SECRET || "5w6xiQ8WWu25bbKPpVbUimXkXbXwb1X5M58I9ISPneA=";
+    let decoded;
+    try {
+        decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (err) {
+        return reply.code(401).send({ error: "Unauthorized: Invalid or expired token" });
+    }
+
+    // Pastikan token benar-benar valid dan sesuai di db untuk sesi saat ini
+    const user = await prisma.users.findFirst({ where: { id: decoded.id, token } });
+    if (!user || user.status !== 1) {
         return reply.code(401).send({ error: "Unauthorized" });
     }
     req.authUser = { id: user.id, role: user.role };
 }
+
+// authOrApiKeyGuard dan extractOriginDomain diimport dari ../lib/guards
+
 
 
 // =========================
@@ -152,11 +165,18 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
     }
 
 
-    // ✅ GET LIST (TIDAK DIUBAH AGAR MAP TETAP JALAN)
-    app.get("/rambu", async (req) => {
+    // ✅ GET LIST (TIDAK DIUBAH AGAR MAP TETAP JALAN - Sekarang dilindungi oleh hybrid authOrApiKeyGuard)
+    app.get("/rambu", { preHandler: authOrApiKeyGuard }, async (req) => {
         const q = req.query as any;
 
-        return prisma.rambu.findMany({
+        // Jika request dari API Key (open map publik) dan tidak ada filter status eksplisit,
+        // paksa hanya tampilkan data yang sudah "published"
+        const isApiKeyAccess = !!req.headers['x-api-key'];
+        const statusFilter = q.status
+            ? String(q.status)
+            : isApiKeyAccess ? 'published' : undefined;
+
+        const results = await prisma.rambu.findMany({
             where: {
                 categoryId: q.categoryId ? Number(q.categoryId) : undefined,
                 disasterTypeId: q.disasterTypeId ? Number(q.disasterTypeId) : undefined,
@@ -167,7 +187,7 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
                 ...(q.isSimulation !== undefined
                     ? { RambuProps: { some: { isSimulation: Number(q.isSimulation) === 1 ? 1 : 0 } } }
                     : {}),
-                ...(q.status ? { status: String(q.status) } : {}),
+                ...(statusFilter ? { status: statusFilter } : {}),
                 ...(q.modelId ? { RambuProps: { some: { model: Number(q.modelId) } } } : {}),
                 ...(q.costsourceId
                     ? { RambuProps: { some: { costsource: { is: { id: Number(q.costsourceId) } } } } }
@@ -177,13 +197,47 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
             include: { photos: true, RambuProps: true },
             orderBy: { createdAt: "desc" },
         });
+        
+        return results.map(r => ({ ...r, id: encodeId(r.id) }));
     });
 
-    app.get("/rambu/:id", async (req, reply) => {
+
+    //GET All Rambu untuk dashboard (semua status, hanya user yang sudah login)
+    app.get("/rambu-all-dashboard", { preHandler: authDashboardGuard }, async (req) => {
+        const q = req.query as any;
+
+        const results = await prisma.rambu.findMany({
+            where: {
+                categoryId: q.categoryId ? Number(q.categoryId) : undefined,
+                disasterTypeId: q.disasterTypeId ? Number(q.disasterTypeId) : undefined,
+                prov_id: q.prov_id ? Number(q.prov_id) : undefined,
+                city_id: q.city_id ? Number(q.city_id) : undefined,
+                district_id: q.district_id ? Number(q.district_id) : undefined,
+                subdistrict_id: q.subdistrict_id ? Number(q.subdistrict_id) : undefined,
+                ...(q.isSimulation !== undefined
+                    ? { RambuProps: { some: { isSimulation: Number(q.isSimulation) === 1 ? 1 : 0 } } }
+                    : {}),
+                // Status: gunakan query param jika ada, jika tidak tampilkan semua (beda dengan route publik)
+                ...(q.status ? { status: String(q.status) } : {}),
+                ...(q.modelId ? { RambuProps: { some: { model: Number(q.modelId) } } } : {}),
+                ...(q.costsourceId
+                    ? { RambuProps: { some: { costsource: { is: { id: Number(q.costsourceId) } } } } }
+                    : {}),
+            },
+            include: { photos: true, RambuProps: true },
+            orderBy: { createdAt: "desc" },
+        });
+
+        return results.map(r => ({ ...r, id: encodeId(r.id) }));
+    });
+
+
+
+    app.get("/rambu/:id", {preHandler: authDashboardGuard}, async (req, reply) => {
         try {
             const { id } = req.params as any
-            const rambuId = Number(id)
-            if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
+            const rambuId = decodeId(id)
+            if (rambuId === null) return reply.code(400).send({ error: 'Invalid id' })
 
             const data = await prisma.rambu.findUnique({
                 where: { id: rambuId },
@@ -193,18 +247,19 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
                 },
             })
             if (!data) return reply.code(404).send({ error: 'Not found' })
-            return reply.send(data)
+            return reply.send({ ...data, id: encodeId(data.id) })
         } catch (e: any) {
             req.log?.error(e)
             return reply.code(500).send({ error: 'Internal error' })
         }
     })
 
-    app.get("/rambu-detail/:id", async (req, reply) => {
+    app.get("/rambu-detail/:id", { preHandler: authDashboardGuard },  async (req, reply) => {
+
         try {
             const { id } = req.params as any
-            const rambuId = Number(id)
-            if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
+            const rambuId = decodeId(id)
+            if (rambuId === null) return reply.code(400).send({ error: 'Invalid id' })
 
             const data = await prisma.rambu.findUnique({
                 where: { id: rambuId },
@@ -222,7 +277,7 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
             })
             if (!data) return reply.code(404).send({ error: 'Not found' })
             const dataFormatted = {
-                id: data.id,
+                id: encodeId(data.id),
                 name: data.name,
                 description: data.description,
                 lat: data.lat,
@@ -256,8 +311,8 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
     app.get("/rambu-map-detail/:id", async (req, reply) => {
         try {
             const { id } = req.params as any
-            const rambuId = Number(id)
-            if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
+            const rambuId = decodeId(id)
+            if (rambuId === null) return reply.code(400).send({ error: 'Invalid id' })
 
             const data = await prisma.rambu.findUnique({
                 where: { id: rambuId },
@@ -268,7 +323,7 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
             })
             if (!data) return reply.code(404).send({ error: 'Not found' })
             const dataFormatted = {
-                id: data.id,
+                id: encodeId(data.id),
                 name: data.name,
                 description: data.description,
                 lat: data.lat,
@@ -295,7 +350,7 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
     // ======================================================
     // ✅ CREATE RAMBU — upload file + Google Drive URL
     // ======================================================
-    app.post("/rambu", { preHandler: authGuard }, async (req, reply) => {
+    app.post("/rambu", { preHandler: authDashboardGuard }, async (req, reply) => {
         const parts = req.parts();
 
         const fields: Record<string, any> = {};
@@ -391,7 +446,7 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
             include: { photos: true, RambuProps: true },
         });
 
-        reply.code(201).send(full);
+        reply.code(201).send({ ...full, id: encodeId(full!.id) });
     });
 
     // ======================================================
@@ -403,10 +458,10 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
     // ======================================================
     // UPDATE RAMBU — PATCH — handles both JSON and Multipart
     // ======================================================
-    app.patch("/rambu/:id", { preHandler: authGuard }, async (req, reply) => {
+    app.patch("/rambu/:id", { preHandler: authDashboardGuard }, async (req, reply) => {
         const { id } = req.params as any
-        const rambuId = Number(id)
-        if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
+        const rambuId = decodeId(id)
+        if (rambuId === null) return reply.code(400).send({ error: 'Invalid id' })
 
         const contentType = req.headers['content-type'] || ''
 
@@ -510,7 +565,7 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
                 where: { id: rambuId },
                 include: { photos: true, RambuProps: true },
             })
-            return reply.send(full)
+            return reply.send({ ...full, id: encodeId(full!.id) })
 
         } else {
             // JSON LOGIC
@@ -553,7 +608,7 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
                 where: { id: rambuId },
                 include: { photos: true, RambuProps: true },
             })
-            return reply.send(full)
+            return reply.send({ ...full, id: encodeId(full!.id) })
         }
     })
 
@@ -579,10 +634,10 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
         reply.send(updated);
     });
 
-    app.delete("/rambu/:id", { preHandler: authGuard }, async (req, reply) => {
+    app.delete("/rambu/:id", { preHandler: authDashboardGuard }, async (req, reply) => {
         const { id } = req.params as any
-        const rambuId = Number(id)
-        if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
+        const rambuId = decodeId(id)
+        if (rambuId === null) return reply.code(400).send({ error: 'Invalid id' })
 
         // Hapus foto terkait
         await prisma.photo.deleteMany({ where: { rambuId } })
@@ -599,23 +654,23 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
     });
 
     //buatkan fungsi route hapus dan masukan ke trash. status diubah jadi "trash"
-    app.put("/rambu-trash/:id", { preHandler: authGuard }, async (req, reply) => {
+    app.put("/rambu-trash/:id", { preHandler: authDashboardGuard }, async (req, reply) => {
         const { id } = req.params as any
-        const rambuId = Number(id)
-        if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
+        const rambuId = decodeId(id)
+        if (rambuId === null) return reply.code(400).send({ error: 'Invalid id' })
 
         const updated = await prisma.rambu.update({
             where: { id: rambuId },
             data: { status: 'trash' },
         })
 
-        return reply.send(updated)
+        return reply.send({ ...updated, id: encodeId(updated.id) })
     })
 
-    app.put("/rambu-status/:id", { preHandler: authGuard }, async (req, reply) => {
+    app.put("/rambu-status/:id", { preHandler: authDashboardGuard }, async (req, reply) => {
         const { id } = req.params as any
-        const rambuId = Number(id)
-        if (!Number.isFinite(rambuId)) return reply.code(400).send({ error: 'Invalid id' })
+        const rambuId = decodeId(id)
+        if (rambuId === null) return reply.code(400).send({ error: 'Invalid id' })
 
         const body = req.body as any
         const status = body.status
@@ -628,7 +683,7 @@ const rambuRoutes: FastifyPluginAsync = async (app) => {
             data: { status: status.trim() },
         })
 
-        return reply.send(updated)
+        return reply.send({ ...updated, id: encodeId(updated.id) })
     });
 };
 

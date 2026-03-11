@@ -41,6 +41,10 @@ const prisma_1 = require("../lib/prisma");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const crypto_1 = __importDefault(require("crypto"));
 const bcrypt = __importStar(require("bcryptjs"));
+const guards_1 = require("../lib/guards");
+const hashid_1 = require("../utils/hashid");
+const { authenticator } = require("otplib");
+const QRCode = __importStar(require("qrcode"));
 // ===== ROLES (integer) =====
 exports.ROLE = {
     SUPERADMIN: 1,
@@ -80,6 +84,18 @@ async function verifyPassword(input, stored) {
 }
 // Bearer auth preHandler
 const authBearer = async (req, reply) => {
+    // 1. Validasi User-Agent (Pencegahan untuk curl, postman, dsb di terminal)
+    const userAgent = (req.headers['user-agent'] || '').toLowerCase();
+    if (!userAgent ||
+        userAgent.includes('curl') ||
+        userAgent.includes('postman') ||
+        userAgent.includes('wget') ||
+        userAgent.includes('insomnia') ||
+        userAgent.includes('httpie')) {
+        return reply.code(403).send({
+            error: 'Forbidden: Access from terminal or non-browser clients is not allowed.'
+        });
+    }
     const auth = req.headers.authorization;
     if (!auth || !auth.startsWith("Bearer ")) {
         return reply.code(401).send({ error: "Missing/invalid Authorization header" });
@@ -95,6 +111,19 @@ const authBearer = async (req, reply) => {
         if (!user || user.status !== 1 || user.token !== token) {
             return reply.code(401).send({ error: "Token invalid or revoked" });
         }
+        // 3. Validasi domain origin (whitelist) — wajib untuk otentikasi via token Bearer
+        const requestDomain = (0, guards_1.extractOriginDomain)(req);
+        if (!requestDomain) {
+            return reply.code(403).send({
+                error: 'Forbidden: Request origin cannot be determined. Domain validation failed.',
+            });
+        }
+        const isAllowed = guards_1.DASHBOARD_ALLOWED_DOMAINS.some((allowed) => requestDomain === allowed || requestDomain.endsWith(`.${allowed}`));
+        if (!isAllowed) {
+            return reply.code(403).send({
+                error: `Forbidden: Domain "${requestDomain}" is not allowed to access resources.`,
+            });
+        }
         req.user = { id: user.id, role: user.role ?? decoded.role, satker_id: user.satker_id ?? null };
     }
     catch (e) {
@@ -107,7 +136,7 @@ const usersRoutes = async (app) => {
     // ===========================
     app.post("/users/login", async (req, reply) => {
         const body = (req.body || {});
-        const { username, password } = body;
+        const { username, password, otp_code } = body;
         if (!username || !password) {
             return reply.code(400).send({ error: "username & password required" });
         }
@@ -121,6 +150,9 @@ const usersRoutes = async (app) => {
                 role: true,
                 satker_id: true,
                 status: true,
+                failedLogin: true,
+                lastFailedAt: true,
+                twoFactorSecret: true,
                 satuanKerja: {
                     select: {
                         id: true,
@@ -134,19 +166,75 @@ const usersRoutes = async (app) => {
         if (!user || user.status !== 1) {
             return reply.code(401).send({ error: "Username atau Password Salah" });
         }
+        // --- RATE LIMITING CHECK ---
+        const MAX_ATTEMPTS = 3;
+        const LOCKOUT_MINUTES = 3;
+        if (user.failedLogin && user.failedLogin >= MAX_ATTEMPTS) {
+            if (user.lastFailedAt) {
+                const now = new Date();
+                const diffMs = now.getTime() - user.lastFailedAt.getTime();
+                const diffMins = diffMs / (1000 * 60);
+                if (diffMins < LOCKOUT_MINUTES) {
+                    return reply.code(429).send({ error: `Sudah 3x login salah, menunggu ${LOCKOUT_MINUTES} menit.` });
+                }
+                else {
+                    // Reset kesempatannya karena sudah lebih dari 3 menit
+                    await prisma_1.prisma.users.update({
+                        where: { id: user.id },
+                        data: { failedLogin: 0, lastFailedAt: null }
+                    });
+                }
+            }
+        }
         const ok = await verifyPassword(password, user.password || undefined);
-        //console.log("Password verification result:");
         if (!ok) {
-            return reply.code(401).send({ error: "Invalid credentials" });
+            // INCREMENT FAILED LOGIN
+            const currentFails = (user.failedLogin || 0) + 1;
+            await prisma_1.prisma.users.update({
+                where: { id: user.id },
+                data: { failedLogin: currentFails, lastFailedAt: new Date() }
+            });
+            if (currentFails >= MAX_ATTEMPTS) {
+                return reply.code(429).send({ error: `Sudah 3x login salah, menunggu ${LOCKOUT_MINUTES} menit.` });
+            }
+            return reply.code(401).send({ error: "Username atau Password Salah" });
+        }
+        // --- GOOGLE AUTHENTICATOR (MFA) CHECK ---
+        if (!user.twoFactorSecret) {
+            const secret = authenticator.generateSecret();
+            const otpauth = authenticator.keyuri(user.username || user.id.toString(), "Sistem MRB BNPB", secret);
+            const imageUrl = await QRCode.toDataURL(otpauth);
+            return reply.send({
+                requires_setup: true,
+                secret: secret,
+                qrcode: imageUrl,
+                message: "MFA belum terkonfigurasi. Silahkan pelajari QRCode berikut.",
+            });
+        }
+        else {
+            if (!otp_code) {
+                return reply.code(403).send({ error: "Kode Autentikator Diperlukan" });
+            }
+            const isValid = authenticator.verify({ token: otp_code, secret: user.twoFactorSecret });
+            if (!isValid) {
+                // INCREMENT FAILED LOGIN PADA OTP SALAH
+                const currentFails = (user.failedLogin || 0) + 1;
+                await prisma_1.prisma.users.update({
+                    where: { id: user.id },
+                    data: { failedLogin: currentFails, lastFailedAt: new Date() }
+                });
+                return reply.code(401).send({ error: "Kode Autentikator Tidak Valid" });
+            }
         }
         // Generate JWT 24 jam & simpan di DB
         const token = signToken({ id: user.id, role: user.role ?? exports.ROLE.ADMIN, satker_id: user.satker_id ?? null });
+        // Sukses Login: Reset counter failure
         await prisma_1.prisma.users.update({
             where: { id: user.id },
-            data: { token },
+            data: { token, failedLogin: 0, lastFailedAt: null },
         });
         return reply.send({
-            id: user.id,
+            id: (0, hashid_1.encodeId)(user.id),
             name: user.name,
             username: user.username,
             role: user.role ?? null,
@@ -155,6 +243,88 @@ const usersRoutes = async (app) => {
             token,
             expiresIn: TOKEN_TTL_SEC,
         });
+    });
+    // ===========================
+    // SETUP MFA MANUAL (auth required)
+    // ===========================
+    app.post("/users/setup-mfa", { preHandler: authBearer }, async (req, reply) => {
+        if (!req.user)
+            return reply.code(401).send({ error: "Unauthorized" });
+        const secret = authenticator.generateSecret();
+        const otpauth = authenticator.keyuri(req.user.id.toString(), "Sistem MRB BNPB", secret);
+        const imageUrl = await QRCode.toDataURL(otpauth);
+        // Simpan secret ke DB user
+        await prisma_1.prisma.users.update({
+            where: { id: req.user.id },
+            data: { twoFactorSecret: secret }
+        });
+        return reply.send({ secret, qrcode: imageUrl });
+    });
+    // ===========================
+    // VERIFY FIRST-TIME MFA SETUP
+    // ===========================
+    app.post("/users/verify-mfa-setup", async (req, reply) => {
+        const body = (req.body || {});
+        const { username, password, secret, otp_code } = body;
+        if (!username || !password || !secret || !otp_code) {
+            return reply.code(400).send({ error: "Data tidak lengkap untuk setup MFA." });
+        }
+        const user = await prisma_1.prisma.users.findFirst({
+            where: { username },
+            select: {
+                id: true, password: true, name: true, role: true, satker_id: true, status: true, twoFactorSecret: true,
+                satuanKerja: { select: { id: true, name: true, prov_id: true, citiy_id: true } }
+            }
+        });
+        if (!user || user.status !== 1)
+            return reply.code(401).send({ error: "Username/Password tidak valid." });
+        // Re-verify password to secure the endpoint completely
+        const ok = await verifyPassword(password, user.password || undefined);
+        if (!ok)
+            return reply.code(401).send({ error: "Username/Password tidak valid." });
+        if (user.twoFactorSecret) {
+            return reply.code(400).send({ error: "MFA sudah terkonfigurasi pada akun ini." });
+        }
+        const isValid = authenticator.verify({ token: otp_code, secret });
+        if (!isValid) {
+            return reply.code(401).send({ error: "Kode OTP Salah." });
+        }
+        // Simpan secret, generate token, sukses.
+        const token = signToken({ id: user.id, role: user.role ?? exports.ROLE.ADMIN, satker_id: user.satker_id ?? null });
+        await prisma_1.prisma.users.update({
+            where: { id: user.id },
+            data: { twoFactorSecret: secret, failedLogin: 0, lastFailedAt: null, token }
+        });
+        return reply.send({
+            id: (0, hashid_1.encodeId)(user.id),
+            name: user.name,
+            username,
+            role: user.role ?? null,
+            satker_id: user.satker_id ?? null,
+            satker_name: user.satuanKerja ? user.satuanKerja.name : null,
+            token,
+            expiresIn: TOKEN_TTL_SEC,
+        });
+    });
+    // GET ME (auth)
+    app.get("/users/me", { preHandler: authBearer }, async (req, reply) => {
+        if (!req.user)
+            return reply.code(401).send({ error: "Unauthorized" });
+        const user = await prisma_1.prisma.users.findUnique({
+            where: { id: req.user.id },
+            select: {
+                id: true,
+                username: true,
+                name: true,
+                role: true,
+                satker_id: true,
+                status: true,
+                satuanKerja: { select: { id: true, name: true, prov_id: true, citiy_id: true } },
+            },
+        });
+        if (!user || user.status !== 1)
+            return reply.code(401).send({ error: "Unauthorized" });
+        return reply.send({ ...user, id: (0, hashid_1.encodeId)(user.id) });
     });
     // LOGOUT (auth)
     app.post("/users/logout", { preHandler: authBearer }, async (req, reply) => {
@@ -172,9 +342,9 @@ const usersRoutes = async (app) => {
     app.get("/users", { preHandler: authBearer }, async (req, reply) => {
         if (!req.user)
             return reply.code(401).send({ error: "Unauthorized" });
-        // if (![ROLE.SUPERADMIN, ROLE.MANAGER].includes(req.user.role)) {
-        //     return reply.code(403).send({ error: "Forbidden" });
-        // }
+        if (![exports.ROLE.SUPERADMIN, exports.ROLE.MANAGER].includes(req.user.role)) {
+            return reply.code(403).send({ error: "Forbidden" });
+        }
         const users = await prisma_1.prisma.users.findMany({
             orderBy: { id: "desc" },
             select: {
@@ -189,7 +359,7 @@ const usersRoutes = async (app) => {
                 },
             },
         });
-        return reply.send(users);
+        return reply.send(users.map(u => ({ ...u, id: (0, hashid_1.encodeId)(u.id) })));
     });
     // ===========================
     // DETAIL (SUPERADMIN & MANAGER)
@@ -200,8 +370,8 @@ const usersRoutes = async (app) => {
         if (req.user.role !== exports.ROLE.SUPERADMIN && req.user.role !== exports.ROLE.MANAGER) {
             return reply.code(403).send({ error: "Forbidden" });
         }
-        const id = Number(req.params.id);
-        if (!Number.isFinite(id))
+        const id = (0, hashid_1.decodeId)(req.params.id);
+        if (id === null)
             return reply.code(400).send({ error: "Invalid id" });
         const user = await prisma_1.prisma.users.findUnique({
             where: { id },
@@ -217,7 +387,7 @@ const usersRoutes = async (app) => {
         });
         if (!user)
             return reply.code(404).send({ error: "Not found" });
-        return reply.send(user);
+        return reply.send({ ...user, id: (0, hashid_1.encodeId)(user.id) });
     });
     // ===========================
     // CREATE (SUPERADMIN only)
@@ -244,7 +414,7 @@ const usersRoutes = async (app) => {
                 status: body.status ?? 1,
             },
         });
-        return reply.code(201).send({ id: created.id });
+        return reply.code(201).send({ id: (0, hashid_1.encodeId)(created.id) });
     });
     // ===========================
     // UPDATE (SUPERADMIN only)
@@ -255,8 +425,8 @@ const usersRoutes = async (app) => {
         if (req.user.role !== exports.ROLE.SUPERADMIN) {
             return reply.code(403).send({ error: "Forbidden" });
         }
-        const id = Number(req.params.id);
-        if (!Number.isFinite(id))
+        const id = (0, hashid_1.decodeId)(req.params.id);
+        if (id === null)
             return reply.code(400).send({ error: "Invalid id" });
         const body = (req.body || {});
         const data = {};
@@ -288,14 +458,13 @@ const usersRoutes = async (app) => {
         if (req.user.role !== exports.ROLE.SUPERADMIN) {
             return reply.code(403).send({ error: "Forbidden" });
         }
-        const id = Number(req.params.id);
-        if (!Number.isFinite(id))
+        const id = (0, hashid_1.decodeId)(req.params.id);
+        if (id === null)
             return reply.code(400).send({ error: "Invalid id" });
         await prisma_1.prisma.users.delete({ where: { id } });
         return reply.send({ ok: true });
     });
-    app.get("/users/satuan-kerja", async (req, reply) => {
-        //if (!req.user) return reply.code(401).send({ error: "Unauthorized" });
+    app.get("/users/satuan-kerja", { preHandler: guards_1.authOrApiKeyGuard }, async (req, reply) => {
         const satkerList = await prisma_1.prisma.satuanKerja.findMany({
             orderBy: { name: "asc" },
             select: {

@@ -1,6 +1,6 @@
 import XLSX from 'xlsx'
 import { z } from 'zod'
-import { rambuCreateSchema } from '@/schemas/rambu'
+import { rambuCreateSchema } from '../schemas/rambu'
 
 export const excelRowSchema = rambuCreateSchema.extend({
     // dukung kolom tambahan jika perlu

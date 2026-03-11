@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify'
 import { prisma } from '../lib/prisma'
 import * as turf from '@turf/turf'
+import { authOrApiKeyGuard } from '../lib/guards'
 
 const FALLBACK_BBOX: Record<number, [number, number, number, number]> = {
     // prov_id: [minLng, minLat, maxLng, maxLat]
@@ -28,7 +29,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
     const prisma = (await import('../lib/prisma')).prisma
 
     // Provinces
-    app.get('/locations/provinces', async (req) => {
+    app.get('/locations/provinces', { preHandler: authOrApiKeyGuard }, async (req) => {
         const { q, limit } = (req.query as any) ?? {}
         const take = Math.min(Number(limit) || 100, 500)
         const rows = await prisma.provinces.findMany({
@@ -41,7 +42,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
     })
 
     // Cities by province
-    app.get('/locations/cities', async (req, reply) => {
+    app.get('/locations/cities', { preHandler: authOrApiKeyGuard }, async (req, reply) => {
         const { prov_id, q, limit } = (req.query as any) ?? {}
         if (!prov_id) return reply.code(400).send({ error: 'prov_id is required' })
         const take = Math.min(Number(limit) || 200, 1000)
@@ -58,7 +59,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
     })
 
     // Districts by city
-    app.get('/locations/districts', async (req, reply) => {
+    app.get('/locations/districts', { preHandler: authOrApiKeyGuard }, async (req, reply) => {
         const { city_id, q, limit } = (req.query as any) ?? {}
         if (!city_id) return reply.code(400).send({ error: 'city_id is required' })
         const take = Math.min(Number(limit) || 300, 1500)
@@ -75,7 +76,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
     })
 
     // Subdistricts by district
-    app.get('/locations/subdistricts', async (req, reply) => {
+    app.get('/locations/subdistricts', { preHandler: authOrApiKeyGuard }, async (req, reply) => {
         const { district_id, q, limit } = (req.query as any) ?? {}
         if (!district_id) return reply.code(400).send({ error: 'district_id is required' })
         const take = Math.min(Number(limit) || 500, 3000)
@@ -91,7 +92,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
         return rows.map(mapSubdistrict)
     })
 
-    app.get('/province-bbox', async (req, reply) => {
+    app.get('/province-bbox', { preHandler: authOrApiKeyGuard }, async (req, reply) => {
         const prov_id = Number((req.query as any).prov_id)
         if (!prov_id) return reply.code(400).send({ error: 'prov_id required' })
 

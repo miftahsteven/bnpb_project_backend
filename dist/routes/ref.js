@@ -5,11 +5,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const prisma_1 = require("../lib/prisma");
 const ref_1 = require("../schemas/ref");
+const guards_1 = require("../lib/guards");
 //import geografis library from https://github.com/drizki/geografis
 const geografis_1 = __importDefault(require("geografis"));
 const refRoutes = async (app) => {
-    // Category`
-    app.get('/ref/categories', async () => prisma_1.prisma.category.findMany());
+    // Category
+    app.get('/ref/categories', { preHandler: guards_1.authOrApiKeyGuard }, async () => prisma_1.prisma.category.findMany());
     app.post('/ref/categories', {
         errorHandler: (error, request, reply) => {
             //reply.code(400).send({ error: 'Invalid data format' })
@@ -72,7 +73,7 @@ const refRoutes = async (app) => {
         });
     });
     // DisasterType
-    app.get('/ref/disaster-types', async () => prisma_1.prisma.disasterType.findMany());
+    app.get('/ref/disaster-types', { preHandler: guards_1.authOrApiKeyGuard }, async () => prisma_1.prisma.disasterType.findMany());
     app.post('/ref/disaster-types', {
         errorHandler: (error, request, reply) => {
             if (error.code === 'P2002' && error.meta?.target?.includes('DisasterType_UNIQUE')) {
@@ -129,8 +130,8 @@ const refRoutes = async (app) => {
             message: 'Hapus Jenis Bencana Berhasil'
         });
     });
-    app.get('/ref/model', async () => prisma_1.prisma.model.findMany());
-    app.get('/ref/costsource', async () => prisma_1.prisma.costsource.findMany());
+    app.get('/ref/model', { preHandler: guards_1.authOrApiKeyGuard }, async () => prisma_1.prisma.model.findMany());
+    app.get('/ref/costsource', { preHandler: guards_1.authOrApiKeyGuard }, async () => prisma_1.prisma.costsource.findMany());
     app.post("/ref/geografis", async (req) => {
         const { lat, long } = req.body;
         const village = await geografis_1.default.getNearest(lat, long);

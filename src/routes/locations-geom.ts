@@ -1,10 +1,11 @@
 // src/routes/locations-geom.ts
 import { FastifyPluginAsync } from 'fastify'
+import { authOrApiKeyGuard } from '../lib/guards'
 
 const locationsGeomRoutes: FastifyPluginAsync = async (app) => {
     const prisma = (await import('../lib/prisma')).prisma
 
-    app.get('/locations/province-geojson', async (req, reply) => {
+    app.get('/locations/province-geojson', { preHandler: authOrApiKeyGuard }, async (req, reply) => {
         const { prov_id } = (req.query as any) ?? {}
         if (!prov_id) return reply.code(400).send({ error: 'prov_id is required' })
 

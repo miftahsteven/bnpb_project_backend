@@ -43,6 +43,17 @@ const excelRoutes = async (app) => {
                 // Parse lat/lng
                 const lat = parseFloat(rawData.latitude);
                 const lng = parseFloat(rawData.longitude);
+                //cek apakah lat dan lng sebelumnya sudah ada di table Rambu
+                const existingRambu = await prisma_1.prisma.rambu.findFirst({
+                    where: {
+                        lat: lat,
+                        lng: lng,
+                    },
+                });
+                if (existingRambu) {
+                    errors.push(`Baris ${i}: Rambu dengan latitude ${lat} dan longitude ${lng} sudah ada.`);
+                    continue;
+                }
                 // Resolve Relations
                 const [category, disasterType, model, costSource] = await Promise.all([
                     prisma_1.prisma.category.findFirst({ where: { name: rawData.kategoriName } }),
@@ -115,7 +126,7 @@ const excelRoutes = async (app) => {
                         district_id: locationIds.district_id,
                         subdistrict_id: locationIds.subdistrict_id,
                         // Default fields
-                        jmlUnit: 1,
+                        inputBy: 2,
                         // Relations
                         RambuProps: {
                             create: {

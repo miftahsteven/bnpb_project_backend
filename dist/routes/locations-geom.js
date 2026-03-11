@@ -33,9 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+const guards_1 = require("../lib/guards");
 const locationsGeomRoutes = async (app) => {
     const prisma = (await Promise.resolve().then(() => __importStar(require('../lib/prisma')))).prisma;
-    app.get('/locations/province-geojson', async (req, reply) => {
+    app.get('/locations/province-geojson', { preHandler: guards_1.authOrApiKeyGuard }, async (req, reply) => {
         const { prov_id } = req.query ?? {};
         if (!prov_id)
             return reply.code(400).send({ error: 'prov_id is required' });

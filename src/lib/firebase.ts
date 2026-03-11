@@ -1,4 +1,4 @@
-import { ENV } from '@/env'
+import { ENV } from '../env'
 import * as admin from 'firebase-admin'
 
 let app: admin.app.App | null = null

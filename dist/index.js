@@ -22,6 +22,7 @@ const auth_2 = __importDefault(require("./routes/auth"));
 const users_1 = __importDefault(require("./routes/users"));
 const report_1 = __importDefault(require("./routes/report"));
 const excel_1 = __importDefault(require("./routes/excel"));
+const openrambu_1 = __importDefault(require("./routes/openrambu"));
 const ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
@@ -71,9 +72,11 @@ async function main() {
     await app.register(users_crud_1.default, { prefix: "/api" });
     await app.register(report_1.default, { prefix: "/api" });
     await app.register(excel_1.default, { prefix: "/api" });
+    await app.register(openrambu_1.default, { prefix: "/api/public" });
     const port = process.env.PORT ? Number(process.env.PORT) : 8044;
     await app.listen({ port });
-    app.log.info(`API ready at http://localhost:${port}`);
+    //app.log.info(`API ready at http://localhost:${port}`);
+    app.log.info(`API ready at ${process.env.BASEURL}:${process.env.PORT}`);
 }
 main().catch((e) => {
     console.error(e);
