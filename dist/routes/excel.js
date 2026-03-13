@@ -148,7 +148,8 @@ const excelRoutes = async (app) => {
             });
         }
         catch (error) {
-            return reply.code(500).send({ message: error.message });
+            // Melempar error ke Global Error Handler di index.ts
+            return reply.send(error);
         }
     });
 };

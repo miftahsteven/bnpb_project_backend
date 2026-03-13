@@ -344,6 +344,22 @@ const usersRoutes: FastifyPluginAsync = async (app) => {
         return reply.send({ ...user, id: encodeId(user.id) });
     });
 
+    // ===========================
+    // GET ROLE
+    // ===========================
+    app.get("/users/getRole", { preHandler: authBearer }, async (req, reply) => {
+        if (!req.user) return reply.code(401).send({ error: "Unauthorized" });
+        const user = await prisma.users.findUnique({
+            where: { id: req.user.id },
+            select: {
+                role: true as any,
+                status: true as any,
+            },
+        } as any);
+        if (!user || user.status !== 1) return reply.code(401).send({ error: "Unauthorized" });
+        return reply.send({ role: user.role });
+    });
+
     // LOGOUT (auth)
     app.post("/users/logout", { preHandler: authBearer }, async (req, reply) => {
         if (!req.user) return reply.code(401).send({ error: "Unauthorized" });

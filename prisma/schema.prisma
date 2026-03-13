@@ -133,19 +133,19 @@ model satuanKerja {
 }
 
 model users {
-  id          Int          @id @default(autoincrement())
-  username    String?      @unique(map: "users_unique") @db.VarChar(100)
-  password    String?      @db.VarChar(255)
-  name        String?      @db.VarChar(255)
-  satker_id   Int?         @default(0)
-  status      Int?         @default(1)
-  token       String?      @db.LongText
+  id              Int          @id @default(autoincrement())
+  username        String?      @unique(map: "users_unique") @db.VarChar(100)
+  password        String?      @db.VarChar(255)
+  name            String?      @db.VarChar(255)
+  satker_id       Int?         @default(0)
+  status          Int?         @default(1)
+  token           String?      @db.LongText
   role            Int?         @default(0) @db.SmallInt
-  failedLogin     Int?         @default(0) // Fitur login fail
+  failedLogin     Int?         @default(0)
   lastFailedAt    DateTime?
-  twoFactorSecret String?      @db.VarChar(255) // Fitur MFA Google Auth
+  twoFactorSecret String?      @db.VarChar(255)
   RambuProps      RambuProps[]
-  satuanKerja satuanKerja? @relation(fields: [satker_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "users_satuanKerja_FK")
+  satuanKerja     satuanKerja? @relation(fields: [satker_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "users_satuanKerja_FK")
 
   @@index([satker_id], map: "users_satuanKerja_FK")
 }

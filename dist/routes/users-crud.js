@@ -86,6 +86,7 @@ const usersCrudRoutes = async (app) => {
                         role: true,
                         status: true,
                         satker_id: true,
+                        twoFactorSecret: true,
                         satuanKerja: {
                             select: {
                                 id: true,
@@ -103,6 +104,7 @@ const usersCrudRoutes = async (app) => {
                 role: user.role,
                 status: user.status,
                 satker_id: user.satker_id,
+                twoFactorSecret: user.twoFactorSecret,
                 satker_name: user.satuanKerja?.name || null
             }));
             return reply.send({

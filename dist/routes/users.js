@@ -213,7 +213,7 @@ const usersRoutes = async (app) => {
         }
         else {
             if (!otp_code) {
-                return reply.code(403).send({ error: "Kode Autentikator Diperlukan" });
+                return reply.code(403).send({ error: "Anda sudah melakukan register. Silahkan Masukan Code OTP Anda" });
             }
             const isValid = authenticator.verify({ token: otp_code, secret: user.twoFactorSecret });
             if (!isValid) {

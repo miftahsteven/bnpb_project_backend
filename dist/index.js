@@ -8,6 +8,7 @@ const fastify_1 = __importDefault(require("fastify"));
 const cors_1 = __importDefault(require("@fastify/cors"));
 const multipart_1 = __importDefault(require("@fastify/multipart"));
 const static_1 = __importDefault(require("@fastify/static"));
+const helmet_1 = __importDefault(require("@fastify/helmet"));
 const auth_1 = __importDefault(require("./plugins/auth"));
 const ref_1 = __importDefault(require("./routes/ref"));
 const rambu_1 = __importDefault(require("./routes/rambu"));
@@ -34,6 +35,18 @@ const app = (0, fastify_1.default)({
     logger: { transport: { target: "pino-pretty" } },
 }).withTypeProvider();
 async function main() {
+    // Menambahkan perlindungan khusus untuk clickjacking sesuai rekomendasi Security Tester
+    await app.register(helmet_1.default, {
+        frameguard: {
+            action: 'deny' // Menambahkan X-Frame-Options: DENY
+        },
+        contentSecurityPolicy: {
+            directives: {
+                ...helmet_1.default.contentSecurityPolicy.getDefaultDirectives(),
+                "frame-ancestors": ["'none'"], // Menambahkan perlindungan dari frame-ancestors
+            },
+        },
+    });
     //await app.register(cors, { origin: "*" });
     await app.register(cors_1.default, {
         origin: ALLOWED_ORIGINS,
@@ -58,6 +71,30 @@ async function main() {
         decorateReply: false,
     });
     app.get("/health", () => ({ ok: true }));
+    // Global Error Handler
+    app.setErrorHandler(function (error, request, reply) {
+        // Selalu log error lengkap ke terminal server (logger internal Fastify)
+        this.log.error(error);
+        // Pastikan error formating (Zod / schema validation) tetap dikembalikan semestinya jika diperlukan
+        if (error.validation) {
+            return reply.status(400).send({
+                message: "Terjadi kesalahan validasi data.",
+                details: error.validation
+            });
+        }
+        // Jika error bukan dari internal system / library dan sudah memiliki status khusus
+        if (error.statusCode && error.statusCode < 500) {
+            return reply.status(error.statusCode).send({
+                message: error.message
+            });
+        }
+        // Pesan generic untuk error lainnya (Bocornya PRISMA, SQL, dll akan tertahan disini)
+        // Sengaja tidak mengirimkan detail error ke sisi user (frontend)
+        return reply.status(500).send({
+            message: "Terjadi kesalahan pada sistem. Silakan coba beberapa saat lagi.",
+            statusCode: 500
+        });
+    });
     // ✅ Semua route harus sebelum listen()
     await app.register(ref_1.default, { prefix: "/api" });
     await app.register(rambu_1.default, { prefix: "/api" });
