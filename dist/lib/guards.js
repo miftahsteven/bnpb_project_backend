@@ -59,16 +59,22 @@ exports.DASHBOARD_ALLOWED_DOMAINS = ['localhost', '127.0.0.1', 'bnpb.go.id', 'ra
  * - 403 jika API Key valid tapi domain tidak cocok atau tidak ada origin
  */
 async function authOrApiKeyGuard(req, reply) {
-    // 0. Validasi User-Agent (Pencegahan untuk curl, postman, dsb di terminal)
+    // 0. Validasi User-Agent
     const userAgent = (req.headers['user-agent'] || '').toLowerCase();
-    if (!userAgent ||
-        userAgent.includes('curl') ||
-        userAgent.includes('postman') ||
+    const isCurl = userAgent.includes('curl');
+    const isPostmanOrSimilar = userAgent.includes('postman') ||
         userAgent.includes('wget') ||
         userAgent.includes('insomnia') ||
-        userAgent.includes('httpie')) {
+        userAgent.includes('httpie');
+    if (!userAgent || isCurl) {
         return reply.code(403).send({
-            error: 'Forbidden: Access from terminal or non-browser clients is not allowed.'
+            error: 'Forbidden: Access from terminal (like curl) or without User-Agent is not allowed.'
+        });
+    }
+    const isPublicApiRoute = req.url && (req.url.startsWith('/api/public') || req.url.startsWith('/public'));
+    if (isPostmanOrSimilar && !isPublicApiRoute) {
+        return reply.code(403).send({
+            error: 'Forbidden: Access from Postman or non-browser clients is only allowed for Public API.'
         });
     }
     // 1. Ekstrak Auth Token (jika ada)
@@ -100,41 +106,21 @@ async function authOrApiKeyGuard(req, reply) {
     if (!apiKey) {
         return reply.code(401).send({ message: 'Unauthorized: Missing API Key' });
     }
-    const FALLBACK_KEY = 'atIZJ3oo9E91Vwu6Cg6x5+fImuZ276Y1k+EDNW+z1kU=';
-    const SERVER_FRONTEND_KEY = 'dlfPFYuptjbaRJXdGbxP4r/88d8kaNy3CBgWKf4BVWM=';
-    const isBypassKey = apiKey === process.env.PUBLIC_API_KEY ||
-        apiKey === process.env.VITE_PUBLIC_API_KEY ||
-        apiKey === FALLBACK_KEY ||
-        apiKey === SERVER_FRONTEND_KEY;
-    let userApiKey = null;
-    let isBypassedPublic = false;
-    if (isBypassKey) {
-        // Bypass DB check for public frontend key
-        isBypassedPublic = true;
-        userApiKey = {
-            key: apiKey,
-            domain: null, // Allow from anywhere, or rest of Dashboard origins will catch it
-            status: 1,
-            institusi: 'map-public-frontend'
-        };
+    const userApiKey = await prisma_1.prisma.user_openapi.findFirst({
+        where: { key: apiKey }
+    });
+    if (!userApiKey) {
+        return reply.code(401).send({ message: 'Unauthorized: Invalid API Key. All API Keys must be registered.' });
     }
-    else {
-        userApiKey = await prisma_1.prisma.user_openapi.findFirst({
-            where: { key: apiKey }
-        });
-        if (!userApiKey) {
-            return reply.code(401).send({ message: 'Unauthorized: Invalid API Key' });
-        }
-        if (userApiKey.status !== 1) {
-            return reply.code(401).send({ message: 'Unauthorized: API Key has been suspended' });
-        }
+    if (userApiKey.status !== 1) {
+        return reply.code(401).send({ message: 'Unauthorized: API Key has been suspended' });
     }
     // 3. Validasi Domain
     const requestDomain = extractOriginDomain(req);
-    // For pure public API calls with the public key, origin domain might not even be present or strictly controlled if we want
-    if (!requestDomain && !isBypassedPublic) {
+    // If it is postman, requestDomain might be null, but we already validated if it was allowed above.
+    if (!requestDomain && !isPostmanOrSimilar) {
         return reply.code(403).send({
-            message: 'Forbidden: Request origin cannot be determined. Domain verification required.',
+            message: 'Forbidden: Request origin cannot be determined. Domain verification required for browser requests.',
         });
     }
     // Jika memiliki Bearer Token, wajib tunduk pada whitelist Dashboard
@@ -151,9 +137,9 @@ async function authOrApiKeyGuard(req, reply) {
     }
     else {
         // Jika tidak memiliki Bearer (Akses murni Publik)
-        // Domain harus sesuai dengan yang didaftarkan pada API Key tersebut
-        // Skip Strict Domain check if using bypassed public key
-        if (!isBypassedPublic) {
+        // Domain harus sesuai dengan yang didaftarkan pada API Key tersebut. 
+        // Postman diizinkan bypass strict origin debug.
+        if (!isPostmanOrSimilar) {
             const registeredDomain = userApiKey.domain?.trim() || null;
             if (registeredDomain && requestDomain !== registeredDomain) {
                 return reply.code(403).send({
@@ -165,11 +151,7 @@ async function authOrApiKeyGuard(req, reply) {
     // --- RATE LIMITING & MONITORING ---
     const isInternalFrontend = userApiKey.institusi?.toLowerCase().includes('internal') ||
         userApiKey.institusi?.toLowerCase().includes('frontend') ||
-        userApiKey.institusi === 'map-public-frontend' ||
-        userApiKey.key === process.env.VITE_PUBLIC_API_KEY ||
-        userApiKey.key === process.env.PUBLIC_API_KEY ||
-        userApiKey.key === 'atIZJ3oo9E91Vwu6Cg6x5+fImuZ276Y1k+EDNW+z1kU=' ||
-        userApiKey.key === 'dlfPFYuptjbaRJXdGbxP4r/88d8kaNy3CBgWKf4BVWM=';
+        userApiKey.institusi === 'map-public-frontend';
     if (!isInternalFrontend) {
         const clientIp = req.headers['x-forwarded-for'] || req.ip || 'unknown-ip';
         const rateLimitKey = `apiKey_${userApiKey.key}_IP_${clientIp}`;
@@ -198,14 +180,20 @@ async function authOrApiKeyGuard(req, reply) {
 async function authDashboardGuard(req, reply) {
     // 1. Validasi User-Agent (Pencegahan untuk curl, postman, dsb di terminal)
     const userAgent = (req.headers['user-agent'] || '').toLowerCase();
-    if (!userAgent ||
-        userAgent.includes('curl') ||
-        userAgent.includes('postman') ||
+    const isCurl = userAgent.includes('curl');
+    const isPostmanOrSimilar = userAgent.includes('postman') ||
         userAgent.includes('wget') ||
         userAgent.includes('insomnia') ||
-        userAgent.includes('httpie')) {
+        userAgent.includes('httpie');
+    if (!userAgent || isCurl) {
         return reply.code(403).send({
-            error: 'Forbidden: Access from terminal or non-browser clients is not allowed.'
+            error: 'Forbidden: Access from curl or missing User-Agent is not allowed.'
+        });
+    }
+    // Default dashboard tidak mengizinkan Postman (hanya API /public yang mengizinkan Postman)
+    if (isPostmanOrSimilar) {
+        return reply.code(403).send({
+            error: 'Forbidden: Access from terminal or non-browser clients is not allowed for Dashboard APIs.'
         });
     }
     // 2. Validasi Bearer token

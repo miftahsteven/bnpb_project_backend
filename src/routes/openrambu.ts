@@ -16,6 +16,12 @@ interface RambuQuery {
   city_id?: string;
 }
 
+interface RadiusQuery {
+  lat: string;
+  lng: string;
+  radius: string;
+}
+
 interface RegistrationBody {
   email: string;
   domain: string;
@@ -91,6 +97,54 @@ export default async function openRambuRoutes(fastify: FastifyInstance) {
   });
 
   /**
+   * @route   GET /api/public/categories
+   * @desc    Get all categories
+   */
+  fastify.get('/categories', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const data = await prisma.category.findMany({
+        select: { id: true, name: true, code: true }
+      });
+      return { success: true, data };
+    } catch (error) {
+      request.log.error(error);
+      return reply.code(500).send({ success: false, message: 'Internal Server Error' });
+    }
+  });
+
+  /**
+   * @route   GET /api/public/models
+   * @desc    Get all models
+   */
+  fastify.get('/models', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const data = await prisma.model.findMany({
+        select: { id: true, name: true }
+      });
+      return { success: true, data };
+    } catch (error) {
+      request.log.error(error);
+      return reply.code(500).send({ success: false, message: 'Internal Server Error' });
+    }
+  });
+
+  /**
+   * @route   GET /api/public/disaster-types
+   * @desc    Get all disaster types
+   */
+  fastify.get('/disaster-types', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const data = await prisma.disasterType.findMany({
+        select: { id: true, name: true, code: true }
+      });
+      return { success: true, data };
+    } catch (error) {
+      request.log.error(error);
+      return reply.code(500).send({ success: false, message: 'Internal Server Error' });
+    }
+  });
+
+  /**
    * @route   GET /api/public/cities
    * @desc    Get cities by province ID
    */
@@ -125,17 +179,14 @@ export default async function openRambuRoutes(fastify: FastifyInstance) {
     try {
       const { provinsi_id, city_id } = request.query;
 
-      // Mandatory validation for provinsi_id
-      if (!provinsi_id) {
-        return reply.code(400).send({ success: false, message: 'provinsi_id is mandatory.' });
-      }
-
       const filters: any = {
-        status: 'published',
-        prov_id: Number(provinsi_id)
+        status: 'published'
       };
 
-      // Optional city_id filter, only if valid
+      if (provinsi_id && !isNaN(Number(provinsi_id))) {
+        filters.prov_id = Number(provinsi_id);
+      }
+
       if (city_id && !isNaN(Number(city_id))) {
         filters.city_id = Number(city_id);
       }
@@ -149,6 +200,7 @@ export default async function openRambuRoutes(fastify: FastifyInstance) {
           subdistricts: { select: { subdis_name: true } },
           category: { select: { name: true } },
           disasterType: { select: { name: true } },
+          photos: { select: { url: true } },
           RambuProps: {
             include: {
               costsource: { select: { name: true } },
@@ -178,7 +230,29 @@ export default async function openRambuRoutes(fastify: FastifyInstance) {
         disaster_type: item.disasterType?.name || null,
         // owner: item.owner?.name,
         condition: null, // item.condition does not exist in Rambu model
-        published_at: item.updatedAt
+        published_at: item.updatedAt,
+        photos: item.photos?.map(p => {
+          const url = p.url || '';
+          const host = request.headers.host || 'localhost:8044';
+          const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
+          
+          if (url.startsWith('http://') || url.startsWith('https://')) {
+            if (!isLocal && (url.includes('localhost') || url.includes('127.0.0.1'))) {
+              return url.replace(/^http:\/\/localhost(:\d+)?/, 'https://rambu-api.bnpb.go.id');
+            }
+            return url;
+          }
+          
+          const protocol = isLocal ? 'http' : 'https';
+          let cleanPath = url.startsWith('/') ? url : `/${url}`;
+          if (!cleanPath.startsWith('/public')) {
+            cleanPath = `/public${cleanPath}`;
+          }
+          
+          return isLocal 
+            ? `${protocol}://${host}${cleanPath}`
+            : `https://rambu-api.bnpb.go.id${cleanPath}`;
+        }) || []
       }));
 
       if (formattedData.length === 0) {
@@ -209,17 +283,14 @@ export default async function openRambuRoutes(fastify: FastifyInstance) {
     try {
       const { provinsi_id, city_id } = request.query;
 
-      // Mandatory validation for provinsi_id
-      if (!provinsi_id) {
-        return reply.code(400).send({ success: false, message: 'provinsi_id is mandatory.' });
-      }
-
       const filters: any = {
-        status: 'published',
-        prov_id: Number(provinsi_id)
+        status: 'published'
       };
 
-      // Optional city_id filter, only if valid
+      if (provinsi_id && !isNaN(Number(provinsi_id))) {
+        filters.prov_id = Number(provinsi_id);
+      }
+
       if (city_id && !isNaN(Number(city_id))) {
         filters.city_id = Number(city_id);
       }
@@ -293,17 +364,14 @@ export default async function openRambuRoutes(fastify: FastifyInstance) {
     try {
       const { provinsi_id, city_id } = request.query;
 
-      // Mandatory validation for provinsi_id
-      if (!provinsi_id) {
-        return reply.code(400).send({ success: false, message: 'provinsi_id is mandatory.' });
-      }
-
       const filters: any = {
-        status: 'published',
-        prov_id: Number(provinsi_id)
+        status: 'published'
       };
 
-      // Optional city_id filter, only if valid
+      if (provinsi_id && !isNaN(Number(provinsi_id))) {
+        filters.prov_id = Number(provinsi_id);
+      }
+
       if (city_id && !isNaN(Number(city_id))) {
         filters.city_id = Number(city_id);
       }
@@ -317,6 +385,123 @@ export default async function openRambuRoutes(fastify: FastifyInstance) {
         success: true,
         count,
         filters: { provinsi_id, city_id: city_id || null }
+      };
+    } catch (error) {
+      request.log.error(error);
+      return reply.code(500).send({ success: false, message: 'Internal Server Error' });
+    }
+  });
+
+  /**
+   * @route   GET /api/public/rambu/radius
+   * @desc    Get published rambu data within a radius
+   */
+  fastify.get<{ Querystring: RadiusQuery }>('/rambu/radius', async (request, reply) => {
+    try {
+      const { lat, lng, radius } = request.query;
+
+      if (!lat || !lng || !radius) {
+        return reply.code(400).send({ success: false, message: 'lat, lng, and radius are mandatory.' });
+      }
+
+      const centerLat = parseFloat(lat);
+      const centerLng = parseFloat(lng);
+      const radiusKm = parseFloat(radius);
+
+      const latDelta = radiusKm / 111;
+      const lngDelta = radiusKm / (111 * Math.cos(centerLat * (Math.PI / 180)));
+
+      const minLat = centerLat - latDelta;
+      const maxLat = centerLat + latDelta;
+      const minLng = centerLng - lngDelta;
+      const maxLng = centerLng + lngDelta;
+
+      const data = await prisma.rambu.findMany({
+        where: {
+          status: 'published',
+          lat: { gte: minLat, lte: maxLat },
+          lng: { gte: minLng, lte: maxLng }
+        },
+        include: {
+          provinces: { select: { prov_name: true } },
+          cities: { select: { city_name: true } },
+          districts: { select: { dis_name: true } },
+          subdistricts: { select: { subdis_name: true } },
+          category: { select: { name: true } },
+          disasterType: { select: { name: true } },
+          photos: { select: { url: true } },
+          RambuProps: {
+            include: {
+              costsource: { select: { name: true } },
+              model_RambuProps_modelTomodel: { select: { name: true } }
+            },
+            orderBy: { id: 'desc' },
+            take: 1
+          }
+        }
+      });
+
+      const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+        const R = 6371; // Radius of the earth in km
+        const dLat = (lat2 - lat1) * (Math.PI / 180);
+        const dLon = (lon2 - lon1) * (Math.PI / 180);
+        const a = 
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+      };
+
+      const filteredData = data.filter(item => {
+        if (item.lat == null || item.lng == null) return false;
+        const dist = calculateDistance(centerLat, centerLng, item.lat, item.lng);
+        return dist <= radiusKm;
+      });
+
+      const formattedData = filteredData.map((item) => ({
+        id: item.id,
+        name: item.name,
+        address: null,
+        latitude: item.lat,
+        longitude: item.lng,
+        province: item.provinces?.prov_name,
+        city: item.cities?.city_name,
+        district: item.districts?.dis_name,
+        subdistrict: item.subdistricts?.subdis_name,
+        category: item.category?.name,
+        source_fund: item.RambuProps?.[0]?.costsource?.name || null,
+        model: item.RambuProps?.[0]?.model_RambuProps_modelTomodel?.name || null,
+        disaster_type: item.disasterType?.name || null,
+        published_at: item.updatedAt,
+        photos: item.photos?.map(p => {
+          const url = p.url || '';
+          const host = request.headers.host || 'localhost:8044';
+          const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
+          
+          if (url.startsWith('http://') || url.startsWith('https://')) {
+            if (!isLocal && (url.includes('localhost') || url.includes('127.0.0.1'))) {
+              return url.replace(/^http:\/\/localhost(:\d+)?/, 'https://rambu-api.bnpb.go.id');
+            }
+            return url;
+          }
+          
+          const protocol = isLocal ? 'http' : 'https';
+          let cleanPath = url.startsWith('/') ? url : `/${url}`;
+          if (!cleanPath.startsWith('/public')) {
+            cleanPath = `/public${cleanPath}`;
+          }
+          
+          return isLocal 
+            ? `${protocol}://${host}${cleanPath}`
+            : `https://rambu-api.bnpb.go.id${cleanPath}`;
+        }) || []
+      }));
+
+      return {
+        success: true,
+        count: formattedData.length,
+        data: formattedData
       };
     } catch (error) {
       request.log.error(error);

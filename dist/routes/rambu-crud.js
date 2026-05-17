@@ -83,19 +83,15 @@ const rambuCrudRoutes = async (app) => {
         if (authUserId && authUserRole !== 1) {
             const usr = await prisma_1.prisma.users.findUnique({
                 where: { id: authUserId },
-                select: { satker_id: true },
+                include: { satuanKerja: true },
             });
-            const satkerId = usr?.satker_id != null ? Number(usr.satker_id) : undefined;
-            if (satkerId !== undefined) {
-                const existing = where.RambuProps?.some || {};
-                // Gabungkan dengan filter existing (mis. isSimulation)
-                where.RambuProps = {
-                    some: {
-                        ...existing,
-                        // filter lewat relasi user → satker_id
-                        users: { satker_id: satkerId },
-                    },
-                };
+            if (usr?.satuanKerja) {
+                if (usr.satuanKerja.citiy_id != null) {
+                    where.city_id = Number(usr.satuanKerja.citiy_id);
+                }
+                else if (usr.satuanKerja.prov_id != null) {
+                    where.prov_id = Number(usr.satuanKerja.prov_id);
+                }
             }
         }
         const [total, dataRaw] = await Promise.all([
@@ -113,6 +109,7 @@ const rambuCrudRoutes = async (app) => {
                     lng: true,
                     status: true,
                     createdAt: true,
+                    inputBy: true,
                     category: { select: { name: true } },
                     disasterType: { select: { name: true } },
                     provinces: { select: { prov_name: true } },
@@ -135,6 +132,9 @@ const rambuCrudRoutes = async (app) => {
                             users: { select: { id: true, satker_id: true } },
                         },
                     },
+                    _count: {
+                        select: { photos: true }
+                    }
                 },
             })
         ]);
@@ -144,6 +144,7 @@ const rambuCrudRoutes = async (app) => {
             description: row.description,
             status: row.status,
             createdAt: row.createdAt,
+            inputBy: row.inputBy,
             lat: row.lat,
             lng: row.lng,
             categoryName: row.category?.name ?? null,
@@ -152,6 +153,7 @@ const rambuCrudRoutes = async (app) => {
             cityName: row.cities?.city_name ?? null,
             districtName: row.districts?.dis_name ?? null,
             subdistrictName: row.subdistricts?.subdis_name ?? null,
+            photosCount: row._count?.photos ?? 0,
             //tambahkan properti dari RambuProps jika ada
             ...(row.RambuProps?.[0]
                 ? {

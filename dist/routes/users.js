@@ -326,6 +326,23 @@ const usersRoutes = async (app) => {
             return reply.code(401).send({ error: "Unauthorized" });
         return reply.send({ ...user, id: (0, hashid_1.encodeId)(user.id) });
     });
+    // ===========================
+    // GET ROLE
+    // ===========================
+    app.get("/users/getRole", { preHandler: authBearer }, async (req, reply) => {
+        if (!req.user)
+            return reply.code(401).send({ error: "Unauthorized" });
+        const user = await prisma_1.prisma.users.findUnique({
+            where: { id: req.user.id },
+            select: {
+                role: true,
+                status: true,
+            },
+        });
+        if (!user || user.status !== 1)
+            return reply.code(401).send({ error: "Unauthorized" });
+        return reply.send({ role: user.role });
+    });
     // LOGOUT (auth)
     app.post("/users/logout", { preHandler: authBearer }, async (req, reply) => {
         if (!req.user)
@@ -464,7 +481,7 @@ const usersRoutes = async (app) => {
         await prisma_1.prisma.users.delete({ where: { id } });
         return reply.send({ ok: true });
     });
-    app.get("/users/satuan-kerja", { preHandler: guards_1.authOrApiKeyGuard }, async (req, reply) => {
+    app.get("/users/satuan-kerja", { preHandler: authBearer }, async (req, reply) => {
         const satkerList = await prisma_1.prisma.satuanKerja.findMany({
             orderBy: { name: "asc" },
             select: {

@@ -159,12 +159,30 @@ const rambuRoutes = async (app) => {
         const statusFilter = q.status
             ? String(q.status)
             : isApiKeyAccess ? 'published' : undefined;
+        const authUserId = req.authUser?.id;
+        const authUserRole = req.authUser?.role;
+        let regionalCityId = undefined;
+        let regionalProvId = undefined;
+        if (authUserId && authUserRole !== 1) {
+            const usr = await prisma_1.prisma.users.findUnique({
+                where: { id: authUserId },
+                include: { satuanKerja: true },
+            });
+            if (usr?.satuanKerja) {
+                if (usr.satuanKerja.citiy_id != null) {
+                    regionalCityId = Number(usr.satuanKerja.citiy_id);
+                }
+                else if (usr.satuanKerja.prov_id != null) {
+                    regionalProvId = Number(usr.satuanKerja.prov_id);
+                }
+            }
+        }
         const results = await prisma_1.prisma.rambu.findMany({
             where: {
                 categoryId: q.categoryId ? Number(q.categoryId) : undefined,
                 disasterTypeId: q.disasterTypeId ? Number(q.disasterTypeId) : undefined,
-                prov_id: q.prov_id ? Number(q.prov_id) : undefined,
-                city_id: q.city_id ? Number(q.city_id) : undefined,
+                prov_id: regionalProvId ?? (q.prov_id ? Number(q.prov_id) : undefined),
+                city_id: regionalCityId ?? (q.city_id ? Number(q.city_id) : undefined),
                 district_id: q.district_id ? Number(q.district_id) : undefined,
                 subdistrict_id: q.subdistrict_id ? Number(q.subdistrict_id) : undefined,
                 ...(q.isSimulation !== undefined
@@ -184,12 +202,30 @@ const rambuRoutes = async (app) => {
     //GET All Rambu untuk dashboard (semua status, hanya user yang sudah login)
     app.get("/rambu-all-dashboard", { preHandler: guards_1.authDashboardGuard }, async (req) => {
         const q = req.query;
+        const authUserId = req.authUser?.id;
+        const authUserRole = req.authUser?.role;
+        let regionalCityId = undefined;
+        let regionalProvId = undefined;
+        if (authUserId && authUserRole !== 1) {
+            const usr = await prisma_1.prisma.users.findUnique({
+                where: { id: authUserId },
+                include: { satuanKerja: true },
+            });
+            if (usr?.satuanKerja) {
+                if (usr.satuanKerja.citiy_id != null) {
+                    regionalCityId = Number(usr.satuanKerja.citiy_id);
+                }
+                else if (usr.satuanKerja.prov_id != null) {
+                    regionalProvId = Number(usr.satuanKerja.prov_id);
+                }
+            }
+        }
         const results = await prisma_1.prisma.rambu.findMany({
             where: {
                 categoryId: q.categoryId ? Number(q.categoryId) : undefined,
                 disasterTypeId: q.disasterTypeId ? Number(q.disasterTypeId) : undefined,
-                prov_id: q.prov_id ? Number(q.prov_id) : undefined,
-                city_id: q.city_id ? Number(q.city_id) : undefined,
+                prov_id: regionalProvId ?? (q.prov_id ? Number(q.prov_id) : undefined),
+                city_id: regionalCityId ?? (q.city_id ? Number(q.city_id) : undefined),
                 district_id: q.district_id ? Number(q.district_id) : undefined,
                 subdistrict_id: q.subdistrict_id ? Number(q.subdistrict_id) : undefined,
                 ...(q.isSimulation !== undefined
@@ -362,6 +398,23 @@ const rambuRoutes = async (app) => {
         catch (e) {
             return reply.code(400).send({ error: "Validasi gagal", issues: e?.errors ?? [] });
         }
+        const authUserId = req.authUser?.id;
+        const authUserRole = req.authUser?.role;
+        if (authUserId && authUserRole !== 1) {
+            const usr = await prisma_1.prisma.users.findUnique({
+                where: { id: authUserId },
+                include: { satuanKerja: true },
+            });
+            if (usr?.satuanKerja) {
+                if (usr.satuanKerja.citiy_id != null) {
+                    parsed.city_id = Number(usr.satuanKerja.citiy_id);
+                    parsed.prov_id = usr.satuanKerja.prov_id != null ? Number(usr.satuanKerja.prov_id) : parsed.prov_id;
+                }
+                else if (usr.satuanKerja.prov_id != null) {
+                    parsed.prov_id = Number(usr.satuanKerja.prov_id);
+                }
+            }
+        }
         const created = await prisma_1.prisma.rambu.create({ data: parsed });
         // Buat rambuProps (opsional) dengan user_id
         const propsData = {
@@ -428,6 +481,27 @@ const rambuRoutes = async (app) => {
         const rambuId = (0, hashid_1.decodeId)(id);
         if (rambuId === null)
             return reply.code(400).send({ error: 'Invalid id' });
+        // Check regional territory boundary
+        const authUserId = req.authUser?.id;
+        const authUserRole = req.authUser?.role;
+        let usr = null;
+        if (authUserId && authUserRole !== 1) {
+            usr = await prisma_1.prisma.users.findUnique({
+                where: { id: authUserId },
+                include: { satuanKerja: true },
+            });
+            if (usr?.satuanKerja) {
+                const existing = await prisma_1.prisma.rambu.findUnique({ where: { id: rambuId } });
+                if (!existing)
+                    return reply.code(404).send({ error: 'Rambu tidak ditemukan' });
+                if (usr.satuanKerja.citiy_id != null && existing.city_id !== Number(usr.satuanKerja.citiy_id)) {
+                    return reply.code(403).send({ error: 'Anda tidak memiliki izin mengubah data rambu di luar wilayah kabupaten/kota Anda' });
+                }
+                if (usr.satuanKerja.citiy_id == null && usr.satuanKerja.prov_id != null && existing.prov_id !== Number(usr.satuanKerja.prov_id)) {
+                    return reply.code(403).send({ error: 'Anda tidak memiliki izin mengubah data rambu di luar wilayah provinsi Anda' });
+                }
+            }
+        }
         const contentType = req.headers['content-type'] || '';
         if (contentType.includes('multipart/form-data')) {
             // MULTIPART LOGIC
@@ -452,6 +526,15 @@ const rambuRoutes = async (app) => {
             }
             catch (e) {
                 app.log.debug({ e }, 'rambuUpdateSchema parse: skip updates');
+            }
+            if (usr?.satuanKerja) {
+                if (usr.satuanKerja.citiy_id != null) {
+                    updates.city_id = Number(usr.satuanKerja.citiy_id);
+                    updates.prov_id = usr.satuanKerja.prov_id != null ? Number(usr.satuanKerja.prov_id) : updates.prov_id;
+                }
+                else if (usr.satuanKerja.prov_id != null) {
+                    updates.prov_id = Number(usr.satuanKerja.prov_id);
+                }
             }
             if (Object.keys(updates).length) {
                 await prisma_1.prisma.rambu.update({ where: { id: rambuId }, data: updates });
@@ -538,6 +621,15 @@ const rambuRoutes = async (app) => {
             catch (e) {
                 app.log.debug({ e }, 'rambuUpdateSchema parse: skip updates');
             }
+            if (usr?.satuanKerja) {
+                if (usr.satuanKerja.citiy_id != null) {
+                    updates.city_id = Number(usr.satuanKerja.citiy_id);
+                    updates.prov_id = usr.satuanKerja.prov_id != null ? Number(usr.satuanKerja.prov_id) : updates.prov_id;
+                }
+                else if (usr.satuanKerja.prov_id != null) {
+                    updates.prov_id = Number(usr.satuanKerja.prov_id);
+                }
+            }
             if (Object.keys(updates).length) {
                 await prisma_1.prisma.rambu.update({ where: { id: rambuId }, data: updates });
             }
@@ -595,6 +687,26 @@ const rambuRoutes = async (app) => {
         const rambuId = (0, hashid_1.decodeId)(id);
         if (rambuId === null)
             return reply.code(400).send({ error: 'Invalid id' });
+        // Check regional territory boundary
+        const authUserId = req.authUser?.id;
+        const authUserRole = req.authUser?.role;
+        if (authUserId && authUserRole !== 1) {
+            const usr = await prisma_1.prisma.users.findUnique({
+                where: { id: authUserId },
+                include: { satuanKerja: true },
+            });
+            if (usr?.satuanKerja) {
+                const existing = await prisma_1.prisma.rambu.findUnique({ where: { id: rambuId } });
+                if (!existing)
+                    return reply.code(404).send({ error: 'Rambu tidak ditemukan' });
+                if (usr.satuanKerja.citiy_id != null && existing.city_id !== Number(usr.satuanKerja.citiy_id)) {
+                    return reply.code(403).send({ error: 'Anda tidak memiliki izin memodifikasi data rambu di luar wilayah kabupaten/kota Anda' });
+                }
+                if (usr.satuanKerja.citiy_id == null && usr.satuanKerja.prov_id != null && existing.prov_id !== Number(usr.satuanKerja.prov_id)) {
+                    return reply.code(403).send({ error: 'Anda tidak memiliki izin memodifikasi data rambu di luar wilayah provinsi Anda' });
+                }
+            }
+        }
         // Hapus foto terkait
         await prisma_1.prisma.photo.deleteMany({ where: { rambuId } });
         // Hapus props terkait
@@ -613,6 +725,26 @@ const rambuRoutes = async (app) => {
         const rambuId = (0, hashid_1.decodeId)(id);
         if (rambuId === null)
             return reply.code(400).send({ error: 'Invalid id' });
+        // Check regional territory boundary
+        const authUserId = req.authUser?.id;
+        const authUserRole = req.authUser?.role;
+        if (authUserId && authUserRole !== 1) {
+            const usr = await prisma_1.prisma.users.findUnique({
+                where: { id: authUserId },
+                include: { satuanKerja: true },
+            });
+            if (usr?.satuanKerja) {
+                const existing = await prisma_1.prisma.rambu.findUnique({ where: { id: rambuId } });
+                if (!existing)
+                    return reply.code(404).send({ error: 'Rambu tidak ditemukan' });
+                if (usr.satuanKerja.citiy_id != null && existing.city_id !== Number(usr.satuanKerja.citiy_id)) {
+                    return reply.code(403).send({ error: 'Anda tidak memiliki izin memodifikasi data rambu di luar wilayah kabupaten/kota Anda' });
+                }
+                if (usr.satuanKerja.citiy_id == null && usr.satuanKerja.prov_id != null && existing.prov_id !== Number(usr.satuanKerja.prov_id)) {
+                    return reply.code(403).send({ error: 'Anda tidak memiliki izin memodifikasi data rambu di luar wilayah provinsi Anda' });
+                }
+            }
+        }
         const updated = await prisma_1.prisma.rambu.update({
             where: { id: rambuId },
             data: { status: 'trash' },
@@ -624,6 +756,26 @@ const rambuRoutes = async (app) => {
         const rambuId = (0, hashid_1.decodeId)(id);
         if (rambuId === null)
             return reply.code(400).send({ error: 'Invalid id' });
+        // Check regional territory boundary
+        const authUserId = req.authUser?.id;
+        const authUserRole = req.authUser?.role;
+        if (authUserId && authUserRole !== 1) {
+            const usr = await prisma_1.prisma.users.findUnique({
+                where: { id: authUserId },
+                include: { satuanKerja: true },
+            });
+            if (usr?.satuanKerja) {
+                const existing = await prisma_1.prisma.rambu.findUnique({ where: { id: rambuId } });
+                if (!existing)
+                    return reply.code(404).send({ error: 'Rambu tidak ditemukan' });
+                if (usr.satuanKerja.citiy_id != null && existing.city_id !== Number(usr.satuanKerja.citiy_id)) {
+                    return reply.code(403).send({ error: 'Anda tidak memiliki izin memodifikasi data rambu di luar wilayah kabupaten/kota Anda' });
+                }
+                if (usr.satuanKerja.citiy_id == null && usr.satuanKerja.prov_id != null && existing.prov_id !== Number(usr.satuanKerja.prov_id)) {
+                    return reply.code(403).send({ error: 'Anda tidak memiliki izin memodifikasi data rambu di luar wilayah provinsi Anda' });
+                }
+            }
+        }
         const body = req.body;
         const status = body.status;
         if (typeof status !== 'string' || !status.trim().length) {

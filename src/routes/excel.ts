@@ -2,8 +2,498 @@ import { FastifyPluginAsync } from 'fastify';
 import ExcelJS from 'exceljs';
 import { prisma } from '../lib/prisma';
 import geografis from 'geografis';
+import { randomUUID } from 'crypto';
+import exifr from 'exifr';
+import { saveBufferLocal, sha256 } from '../lib/storage';
+import { authDashboardGuard } from '../lib/guards';
+
+async function extractMeta(buffer: Buffer) {
+  try {
+    const exif = await exifr.parse(buffer, {
+      gps: true,
+      tiff: true,
+      ifd0: {},
+      exif: true,
+      interop: true,
+    });
+
+    if (!exif) return null;
+
+    const meta: any = {};
+
+    if (exif.latitude && exif.longitude) {
+      meta.gps = {
+        lat: exif.latitude || 0.00,
+        lng: exif.longitude || 0.00,
+      };
+    }
+    if (exif.DateTimeOriginal) meta.datetime = exif.DateTimeOriginal;
+    if (exif.Orientation) meta.orientation = exif.Orientation;
+    if (exif.ImageWidth) meta.width = exif.ImageWidth;
+    if (exif.ImageHeight) meta.height = exif.ImageHeight;
+
+    return meta;
+  } catch (e) {
+    console.error("EXIF parse failed:", e);
+    return null;
+  }
+}
+
+// Fuzzy helpers for high-accuracy (>90%) database location lookup
+async function findBestProvince(name: string) {
+  if (!name) return null;
+  const cleanName = name.toUpperCase().replace(/^(PROVINSI|PROV\.)\s+/i, '').trim();
+  
+  // 1. First try contains
+  let prov = await prisma.provinces.findFirst({
+    where: {
+      prov_name: {
+        contains: cleanName
+      }
+    }
+  });
+
+  // 2. Fallback startsWith (first 4 characters)
+  if (!prov && cleanName.length >= 4) {
+    prov = await prisma.provinces.findFirst({
+      where: {
+        prov_name: {
+          startsWith: cleanName.slice(0, 4)
+        }
+      }
+    });
+  }
+  return prov;
+}
+
+async function findBestCity(provId: number, name: string) {
+  if (!name) return null;
+  const cleanName = name.toUpperCase()
+    .replace(/^(KABUPATEN|KOTA|KAB\.|KAB)\s+/i, '')
+    .trim();
+
+  // 1. Try contains
+  let city = await prisma.cities.findFirst({
+    where: {
+      prov_id: provId,
+      city_name: {
+        contains: cleanName
+      }
+    }
+  });
+
+  // 2. Fallback startsWith (first 4 characters)
+  if (!city && cleanName.length >= 4) {
+    city = await prisma.cities.findFirst({
+      where: {
+        prov_id: provId,
+        city_name: {
+          startsWith: cleanName.slice(0, 4)
+        }
+      }
+    });
+  }
+  return city;
+}
+
+async function findBestDistrict(cityId: number, name: string) {
+  if (!name) return null;
+  const cleanName = name.toUpperCase()
+    .replace(/^(KECAMATAN|KEC\.|KEC)\s+/i, '')
+    .trim();
+
+  // 1. Try contains
+  let dist = await prisma.districts.findFirst({
+    where: {
+      city_id: cityId,
+      dis_name: {
+        contains: cleanName
+      }
+    }
+  });
+
+  // 2. Fallback startsWith (first 4 characters)
+  if (!dist && cleanName.length >= 4) {
+    dist = await prisma.districts.findFirst({
+      where: {
+        city_id: cityId,
+        dis_name: {
+          startsWith: cleanName.slice(0, 4)
+        }
+      }
+    });
+  }
+  return dist;
+}
+
+async function findBestSubdistrict(districtId: number, name: string) {
+  if (!name) return null;
+  const cleanName = name.toUpperCase()
+    .replace(/^(DESA|KELURAHAN|KEL\.|KEL)\s+/i, '')
+    .trim();
+
+  // 1. Try contains
+  let subdist = await prisma.subdistricts.findFirst({
+    where: {
+      dis_id: districtId,
+      subdis_name: {
+        contains: cleanName
+      }
+    }
+  });
+
+  // 2. Fallback startsWith (first 4 characters)
+  if (!subdist && cleanName.length >= 4) {
+    subdist = await prisma.subdistricts.findFirst({
+      where: {
+        dis_id: districtId,
+        subdis_name: {
+          startsWith: cleanName.slice(0, 4)
+        }
+      }
+    });
+  }
+
+  // 3. Simple overlap heuristic for typo tolerance (e.g. Pagubungan vs Pagubugan)
+  if (!subdist && cleanName.length >= 5) {
+    const candidates = await prisma.subdistricts.findMany({
+      where: { dis_id: districtId }
+    });
+    if (candidates.length > 0) {
+      let bestMatch = candidates[0];
+      let maxOverlap = 0;
+      for (const cand of candidates) {
+        const cName = (cand.subdis_name || '').toUpperCase();
+        let overlap = 0;
+        for (let idx = 0; idx < Math.min(cleanName.length, cName.length); idx++) {
+          if (cleanName[idx] === cName[idx]) overlap++;
+        }
+        if (overlap > maxOverlap) {
+          maxOverlap = overlap;
+          bestMatch = cand;
+        }
+      }
+      if (maxOverlap >= 3) {
+        subdist = bestMatch;
+      }
+    }
+  }
+  return subdist;
+}
 
 const excelRoutes: FastifyPluginAsync = async (app) => {
+  
+  // 1. ✅ PARSE EXCEL ENDPOINT
+  app.post('/parse-excel', { preHandler: authDashboardGuard }, async (req, reply) => {
+    const fileData = await req.file();
+
+    if (!fileData) {
+      return reply.status(400).send({ message: 'No file uploaded' });
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    try {
+      const buffer = await fileData.toBuffer();
+      await workbook.xlsx.load(buffer as any);
+      
+      const worksheet = workbook.getWorksheet(1);
+      if (!worksheet) {
+        throw new Error('Worksheet not found'); 
+      }
+
+      // Max 100 data rows (excluding header)
+      const dataRowCount = worksheet.rowCount - 1;
+      if (dataRowCount > 100) {
+        return reply.status(400).send({ message: 'Jumlah data import maksimal 100 baris.' });
+      }
+
+      const parsedRows = [];
+      const currentYear = new Date().getFullYear();
+
+      for (let i = 2; i <= worksheet.rowCount; i++) {
+        const row = worksheet.getRow(i);
+        
+        // Skip empty row
+        const kecamatanVal = row.getCell(1).text?.trim();
+        const desaVal = row.getCell(2).text?.trim();
+        const latVal = row.getCell(3).text?.trim();
+        const lngVal = row.getCell(4).text?.trim();
+        const jenisRambuVal = row.getCell(5).text?.trim();
+
+        if (!kecamatanVal && !desaVal && !latVal && !lngVal && !jenisRambuVal) {
+          continue;
+        }
+
+        const lat = parseFloat(latVal || '0');
+        const lng = parseFloat(lngVal || '0');
+
+        // Resolve Category (Jenis Rambu)
+        let categoryId: number | '' = '';
+        if (jenisRambuVal) {
+          const category = await prisma.category.findFirst({
+            where: {
+              name: {
+                equals: jenisRambuVal
+              }
+            }
+          });
+          if (category) {
+            categoryId = category.id;
+          }
+        }
+
+        // Location IDs lookup (Fuzzy + coordinates)
+        let prov_id: number | '' = '';
+        let city_id: number | '' = '';
+        let district_id: number | '' = '';
+        let subdistrict_id: number | '' = '';
+
+        // Step A: lookup by Geografis using Lat/Lng
+        if (lat && lng) {
+          try {
+            const geo = await geografis.getNearest(lat, lng) as any;
+            if (geo) {
+              const prov = geo.province ? await findBestProvince(geo.province) : null;
+              if (prov) {
+                prov_id = prov.prov_id;
+                const city = geo.city ? await findBestCity(prov.prov_id, geo.city) : null;
+                if (city) {
+                  city_id = city.city_id;
+                  const dist = geo.district ? await findBestDistrict(city.city_id, geo.district) : null;
+                  if (dist) {
+                    district_id = dist.dis_id;
+                    const subdist = geo.village ? await findBestSubdistrict(dist.dis_id, geo.village) : null;
+                    if (subdist) {
+                      subdistrict_id = subdist.subdis_id;
+                    }
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.error(`Geografis lookup failed in parse for row ${i}:`, e);
+          }
+        }
+
+        // Step B: fallback using Excel's Nama Kecamatan and Nama Desa names
+        if (!district_id && kecamatanVal) {
+          const dist = await prisma.districts.findFirst({
+            where: {
+              dis_name: {
+                contains: kecamatanVal.toUpperCase()
+              }
+            }
+          });
+          if (dist) {
+            district_id = dist.dis_id;
+            if (dist.city_id) {
+              city_id = dist.city_id;
+              const city = await prisma.cities.findUnique({ where: { city_id: dist.city_id } });
+              if (city && city.prov_id) {
+                prov_id = city.prov_id;
+              }
+            }
+          } else {
+            // Try starting with first 4 letters of Kecamatan
+            const distFallback = await prisma.districts.findFirst({
+              where: {
+                dis_name: {
+                  startsWith: kecamatanVal.toUpperCase().slice(0, 4)
+                }
+              }
+            });
+            if (distFallback) {
+              district_id = distFallback.dis_id;
+              if (distFallback.city_id) {
+                city_id = distFallback.city_id;
+                const city = await prisma.cities.findUnique({ where: { city_id: distFallback.city_id } });
+                if (city && city.prov_id) {
+                  prov_id = city.prov_id;
+                }
+              }
+            }
+          }
+        }
+
+        if (district_id && !subdistrict_id && desaVal) {
+          const subdist = await findBestSubdistrict(Number(district_id), desaVal);
+          if (subdist) {
+            subdistrict_id = subdist.subdis_id;
+          }
+        }
+
+        parsedRows.push({
+          key: `row-${i}-${randomUUID().slice(0, 8)}`,
+          excelKecamatan: kecamatanVal || '',
+          excelDesa: desaVal || '',
+          excelJenisRambu: jenisRambuVal || '',
+          lat: lat || '',
+          lng: lng || '',
+          prov_id,
+          city_id,
+          district_id,
+          subdistrict_id,
+          categoryId,
+          disasterTypeId: '', // Mandatory, to be selected by admin
+          model_id: 1, // Default "Rambu Daun 1"
+          cost_id: 1, // Default "Pusat"
+          year: currentYear,
+          isSimulation: 0,
+          description: `Import Rambu Kecamatan ${kecamatanVal || ''}, Desa ${desaVal || ''}`,
+          photos: [] // Will hold arrays of uploaded photos
+        });
+      }
+
+      return reply.send({
+        success: true,
+        message: `Parsed ${parsedRows.length} rows successfully.`,
+        data: parsedRows
+      });
+
+    } catch (err: any) {
+      console.error(err);
+      return reply.status(500).send({ message: 'Gagal memproses file excel: ' + err.message });
+    }
+  });
+
+  // 2. ✅ TEMP PHOTO UPLOAD ENDPOINT
+  app.post('/import-excel-temp-photo', { preHandler: authDashboardGuard }, async (req, reply) => {
+    const part = await req.file();
+    if (!part) {
+      return reply.status(400).send({ message: 'No image uploaded' });
+    }
+
+    try {
+      const chunks: Buffer[] = [];
+      for await (const chunk of part.file) {
+        chunks.push(chunk);
+      }
+      const buffer = Buffer.concat(chunks);
+
+      const ext = (part.filename?.split('.').pop() || 'jpg').toLowerCase();
+      const filename = `temp-import-${randomUUID()}.${ext}`;
+      const url = saveBufferLocal(filename, buffer);
+
+      let meta: any = null;
+      try {
+        meta = await extractMeta(buffer);
+      } catch (e) {
+        console.error('EXIF extraction failed on temp upload:', e);
+      }
+
+      return reply.send({
+        url,
+        checksum: sha256(buffer),
+        meta: meta || undefined
+      });
+    } catch (e: any) {
+      console.error(e);
+      return reply.status(500).send({ message: 'Gagal mengunggah foto: ' + e.message });
+    }
+  });
+
+  // 3. ✅ BULK SAVE ENDPOINT
+  app.post('/import-excel-bulk', { preHandler: authDashboardGuard }, async (req, reply) => {
+    const { rows } = req.body as { rows: any[] };
+
+    if (!rows || !Array.isArray(rows) || rows.length === 0) {
+      return reply.status(400).send({ message: 'Tidak ada data untuk disimpan.' });
+    }
+
+    // Validation pass
+    for (let idx = 0; idx < rows.length; idx++) {
+      const row = rows[idx];
+      const rowNum = idx + 1;
+
+      if (!row.lat || isNaN(parseFloat(row.lat))) {
+        return reply.status(400).send({ message: `Baris ${rowNum}: Latitude harus berupa angka valid.` });
+      }
+      if (!row.lng || isNaN(parseFloat(row.lng))) {
+        return reply.status(400).send({ message: `Baris ${rowNum}: Longitude harus berupa angka valid.` });
+      }
+      if (!row.categoryId) {
+        return reply.status(400).send({ message: `Baris ${rowNum}: Jenis Rambu wajib dipilih.` });
+      }
+      if (!row.disasterTypeId) {
+        return reply.status(400).send({ message: `Baris ${rowNum}: Jenis Bencana wajib dipilih.` });
+      }
+      if (!row.prov_id || !row.city_id || !row.district_id || !row.subdistrict_id) {
+        return reply.status(400).send({ message: `Baris ${rowNum}: Wilayah lokasi (Provinsi, Kota, Kecamatan, Desa) harus lengkap.` });
+      }
+    }
+
+    const savedRecords = [];
+
+    try {
+      // Transaction or sequential creations
+      await prisma.$transaction(async (tx) => {
+        for (const row of rows) {
+          // Find Category name for Rambu name fallback
+          const category = await tx.category.findUnique({
+            where: { id: Number(row.categoryId) }
+          });
+
+          // Create Rambu (marked as lowercase "draft")
+          const createdRambu = await tx.rambu.create({
+            data: {
+              name: category ? category.name : 'Rambu Import',
+              description: row.description || '',
+              status: 'draft', // Forced to draft
+              lat: parseFloat(row.lat),
+              lng: parseFloat(row.lng),
+              categoryId: Number(row.categoryId),
+              disasterTypeId: Number(row.disasterTypeId),
+              prov_id: Number(row.prov_id),
+              city_id: Number(row.city_id),
+              district_id: Number(row.district_id),
+              subdistrict_id: Number(row.subdistrict_id),
+              inputBy: 2,
+              RambuProps: {
+                create: {
+                  model: row.model_id ? Number(row.model_id) : null,
+                  cost_id: row.cost_id ? Number(row.cost_id) : null,
+                  year: String(row.year),
+                  isSimulation: Number(row.isSimulation) === 1 ? 1 : 0,
+                  isPlanning: 0
+                }
+              }
+            }
+          });
+
+          // Create Photos linked to Rambu ID
+          if (row.photos && Array.isArray(row.photos)) {
+            for (let pIdx = 0; pIdx < row.photos.length; pIdx++) {
+              const photo = row.photos[pIdx];
+              await tx.photo.create({
+                data: {
+                  rambuId: createdRambu.id,
+                  url: photo.url,
+                  checksum: photo.checksum || '',
+                  // Type 1 is GPS for first photo, type 99 is Additional for others
+                  type: pIdx === 0 ? 1 : 99,
+                  meta: photo.meta ? JSON.stringify(photo.meta) : null
+                }
+              });
+            }
+          }
+
+          savedRecords.push(createdRambu);
+        }
+      });
+
+      return reply.send({
+        success: true,
+        message: `${savedRecords.length} Rambu berhasil diimport dan disimpan dengan status Draft.`,
+        count: savedRecords.length
+      });
+
+    } catch (e: any) {
+      console.error('Bulk save transaction failed:', e);
+      return reply.status(500).send({ message: 'Gagal melakukan penyimpanan bulk: ' + e.message });
+    }
+  });
+
+  // Keep original /import-excel endpoint active for backwards compatibility
   app.post('/import-excel', async (req, reply) => {
     const data = await req.file();
 
@@ -26,10 +516,8 @@ const excelRoutes: FastifyPluginAsync = async (app) => {
 
       for (let i = 2; i <= worksheet.rowCount; i++) {
         const row = worksheet.getRow(i);
-        // Assuming column 1 (Deskripsi) is mandatory to consider the row valid
         if (!row.getCell(1).value) continue;
 
-        // Extract raw data from columns A-J (1-10)
         const rawData = {
           deskripsi: row.getCell(1).text,
           status: row.getCell(2).text,
@@ -43,11 +531,9 @@ const excelRoutes: FastifyPluginAsync = async (app) => {
           simulasi: row.getCell(10).text.toLowerCase().trim(),
         };
 
-        // Parse lat/lng
         const lat = parseFloat(rawData.latitude);
         const lng = parseFloat(rawData.longitude);
 
-        //cek apakah lat dan lng sebelumnya sudah ada di table Rambu
         const existingRambu = await prisma.rambu.findFirst({
           where: {
             lat: lat,
@@ -60,7 +546,6 @@ const excelRoutes: FastifyPluginAsync = async (app) => {
           continue;
         }   
         
-        // Resolve Relations
         const [category, disasterType, model, costSource] = await Promise.all([
           prisma.category.findFirst({ where: { name: rawData.kategoriName } }),
           prisma.disasterType.findFirst({ where: { name: rawData.jenisBencanaName } }),
@@ -79,19 +564,11 @@ const excelRoutes: FastifyPluginAsync = async (app) => {
           continue;
         }
 
-        // Location Lookup using Geografis
         let locationIds: { prov_id?: number, city_id?: number, district_id?: number, subdistrict_id?: number } = {};
         
         try {
-             // geografis.getNearest returns { province, city, district, village } (strings)
              const geo = await geografis.getNearest(lat, lng) as any;
-             
              if (geo) {
-                 // Database Lookup for Location IDs
-                 // Note: We use 'contains' to be safer with case/formatting, or exact match?
-                 // Usually exact match is preferred if data source is standard. 
-                 // We'll try findFirst with the name.
-                 
                  const prov = geo.province ? await prisma.provinces.findFirst({ where: { prov_name: geo.province } }) : null;
                  const city = geo.city ? await prisma.cities.findFirst({ where: { city_name: geo.city } }) : null;
                  const dist = geo.district ? await prisma.districts.findFirst({ where: { dis_name: geo.district } }) : null;
@@ -106,43 +583,24 @@ const excelRoutes: FastifyPluginAsync = async (app) => {
              }
         } catch (e) {
             console.error(`Geocoding failed for row ${i}`, e);
-            // We proceed without location IDs if geocoding fails, or should we error? 
-            // The requirement implies we "take from get data geografis". If it fails, maybe allow it but fields will be null.
         }
-
-        // Create Rambu
-        // Note: We map Deskripsi -> description. name -> ? (Maybe logic from import.ts: jenis or default)
-        // I will use description for descriptiom. 
-        // I'll leave 'name' null or maybe use rawData.kategoriName + " " + rawData.jenisBencanaName? 
-        // Let's use rawData.deskripsi for description, and maybe category name for name if name is required. 
-        // Schema says `name String?`, `description String?`. So name can be null.
         
         const isSimulasiBool = rawData.simulasi === 'ya' || rawData.simulasi === 'yes' || rawData.simulasi === 'true';
 
-        // Check if RambuProps fields need to be numbers or strings? 
-        // Schema: isSimulation Int?
-        
         const result = await prisma.rambu.create({
           data: {
-            // Rambu fields
-            name: rawData.kategoriName, // Fallback name
+            name: rawData.kategoriName,
             description: rawData.deskripsi,
             status: rawData.status,
             lat: lat || 0,
             lng: lng || 0,
             categoryId: category!.id,
             disasterTypeId: disasterType!.id,
-            
-            // Location fields
             prov_id: locationIds.prov_id,
             city_id: locationIds.city_id,
             district_id: locationIds.district_id,
             subdistrict_id: locationIds.subdistrict_id,
-            
-            // Default fields
             inputBy: 2,
-
-            // Relations
             RambuProps: {
               create: {
                   model: model!.id,
@@ -165,7 +623,6 @@ const excelRoutes: FastifyPluginAsync = async (app) => {
       });
 
     } catch (error: any) {
-      // Melempar error ke Global Error Handler di index.ts
       return reply.send(error);
     }
   });

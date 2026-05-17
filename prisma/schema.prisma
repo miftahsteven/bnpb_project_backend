@@ -192,3 +192,19 @@ model user_openapi {
   status    Int?    @default(1) @db.SmallInt
   institusi String? @db.VarChar(255)
 }
+
+model PublicReport {
+  id          String   @id
+  userEmail   String   @db.VarChar(255)
+  rambuId     String   @db.VarChar(255)
+  rambuName   String   @db.VarChar(255)
+  rambuCode   String   @db.VarChar(255)
+  latitude    Float
+  longitude   Float
+  phone       String?  @db.VarChar(50)
+  description String   @db.Text
+  photo       String   @db.LongText
+  photoFinished String?  @db.LongText
+  status      String   @db.VarChar(50) @default("Menunggu Verifikasi")
+  createdAt   DateTime @default(now())
+}

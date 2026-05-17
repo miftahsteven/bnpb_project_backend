@@ -24,15 +24,19 @@ const users_1 = __importDefault(require("./routes/users"));
 const report_1 = __importDefault(require("./routes/report"));
 const excel_1 = __importDefault(require("./routes/excel"));
 const openrambu_1 = __importDefault(require("./routes/openrambu"));
+const public_reports_1 = __importDefault(require("./routes/public-reports"));
 const ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
+    "http://localhost:5174",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
+    "http://localhost:3008",
     "https://mrb.supplydata.id"
 ];
 const app = (0, fastify_1.default)({
     logger: { transport: { target: "pino-pretty" } },
+    bodyLimit: 50 * 1024 * 1024, // 50MB
 }).withTypeProvider();
 async function main() {
     // Menambahkan perlindungan khusus untuk clickjacking sesuai rekomendasi Security Tester
@@ -46,6 +50,9 @@ async function main() {
                 "frame-ancestors": ["'none'"], // Menambahkan perlindungan dari frame-ancestors
             },
         },
+        crossOriginResourcePolicy: {
+            policy: "cross-origin"
+        }
     });
     //await app.register(cors, { origin: "*" });
     await app.register(cors_1.default, {
@@ -110,6 +117,7 @@ async function main() {
     await app.register(report_1.default, { prefix: "/api" });
     await app.register(excel_1.default, { prefix: "/api" });
     await app.register(openrambu_1.default, { prefix: "/api/public" });
+    await app.register(public_reports_1.default, { prefix: "/api" });
     const port = process.env.PORT ? Number(process.env.PORT) : 8044;
     await app.listen({ port });
     //app.log.info(`API ready at http://localhost:${port}`);

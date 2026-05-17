@@ -1,37 +1,11 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 const prisma_1 = require("../lib/prisma");
 const hashid_1 = require("../utils/hashid");
-const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const roles_1 = require("../constants/roles");
-async function authGuard(req, reply) {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        return reply.code(401).send({ error: "Unauthorized" });
-    }
-    const token = authHeader.slice(7).trim();
-    if (!token)
-        return reply.code(401).send({ error: "Unauthorized" });
-    const JWT_SECRET = process.env.JWT_SECRET || "5w6xiQ8WWu25bbKPpVbUimXkXbXwb1X5M58I9ISPneA=";
-    let decoded;
-    try {
-        decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
-    }
-    catch (err) {
-        return reply.code(401).send({ error: "Unauthorized: Invalid or expired token" });
-    }
-    // Pastikan token benar-benar valid dan sesuai di db untuk sesi saat ini
-    const user = await prisma_1.prisma.users.findFirst({ where: { id: decoded.id, token } });
-    if (!user || user.status !== 1) {
-        return reply.code(401).send({ error: "Unauthorized" });
-    }
-    req.authUser = { id: user.id, role: user.role };
-}
+const guards_1 = require("../lib/guards");
 const usersCrudRoutes = async (app) => {
-    app.get("/users-crud", { preHandler: authGuard }, async (req, reply) => {
+    app.get("/users-crud", { preHandler: guards_1.authDashboardGuard }, async (req, reply) => {
         try {
             const q = req.query;
             const page = q.page ? Number(q.page) : 1;
@@ -119,7 +93,7 @@ const usersCrudRoutes = async (app) => {
         }
     });
     // POST RESET MFA (Hanya Superadmin/Manager)
-    app.post("/users-crud/:id/reset-mfa", { preHandler: authGuard }, async (req, reply) => {
+    app.post("/users-crud/:id/reset-mfa", { preHandler: guards_1.authDashboardGuard }, async (req, reply) => {
         try {
             const callerRole = req.authUser?.role;
             if (callerRole !== roles_1.ROLE.ADMIN && callerRole !== roles_1.ROLE.SUPERADMIN) {
