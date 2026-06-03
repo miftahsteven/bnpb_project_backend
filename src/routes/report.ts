@@ -36,13 +36,25 @@ const authBearer = async (req: FastifyRequest, reply: any) => {
 const reportRoutes: FastifyPluginAsync = async (fastify, opts) => {
   fastify.get('/dashboard-stats', {preHandler: authBearer}, async (request, reply) => {
     try {
+      const whereClause: any = {};
+      
+      if (request.user && request.user.role !== 1 && request.user.satker_id) {
+        const satker = await prisma.satuanKerja.findUnique({
+          where: { id: request.user.satker_id }
+        });
+        if (satker) {
+          if (satker.prov_id) whereClause.prov_id = satker.prov_id;
+          if (satker.citiy_id) whereClause.city_id = satker.citiy_id;
+        }
+      }
+
       // 1. Laporan jumlah data rambu (Summary)
       const [draft, published, rusak, hilang, total] = await Promise.all([
-        prisma.rambu.count({ where: { status: 'draft' } }),
-        prisma.rambu.count({ where: { status: 'published' } }),
-        prisma.rambu.count({ where: { status: 'rusak' } }),
-        prisma.rambu.count({ where: { status: 'hilang' } }),
-        prisma.rambu.count(),
+        prisma.rambu.count({ where: { ...whereClause, status: 'draft' } }),
+        prisma.rambu.count({ where: { ...whereClause, status: 'published' } }),
+        prisma.rambu.count({ where: { ...whereClause, status: 'rusak' } }),
+        prisma.rambu.count({ where: { ...whereClause, status: 'hilang' } }),
+        prisma.rambu.count({ where: whereClause }),
       ]);
 
       const summary = { draft, published, rusak, hilang, total };    

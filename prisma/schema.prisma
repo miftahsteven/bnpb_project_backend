@@ -194,17 +194,18 @@ model user_openapi {
 }
 
 model PublicReport {
-  id          String   @id
-  userEmail   String   @db.VarChar(255)
-  rambuId     String   @db.VarChar(255)
-  rambuName   String   @db.VarChar(255)
-  rambuCode   String   @db.VarChar(255)
-  latitude    Float
-  longitude   Float
-  phone       String?  @db.VarChar(50)
-  description String   @db.Text
-  photo       String   @db.LongText
-  photoFinished String?  @db.LongText
-  status      String   @db.VarChar(50) @default("Menunggu Verifikasi")
-  createdAt   DateTime @default(now())
+  id                String   @id
+  userEmail         String   @db.VarChar(255)
+  rambuId           String   @db.VarChar(255)
+  rambuName         String   @db.VarChar(255)
+  rambuCode         String   @db.VarChar(255)
+  latitude          Float
+  longitude         Float
+  phone             String?  @db.VarChar(50)
+  description       String   @db.Text
+  photo             String   @db.LongText
+  status            String   @default("Menunggu Verifikasi") @db.VarChar(50)
+  createdAt         DateTime @default(now())
+  photoFinished     String?  @db.LongText
+  statusDescription String?  @db.Text
 }

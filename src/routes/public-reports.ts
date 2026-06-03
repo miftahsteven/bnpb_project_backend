@@ -149,15 +149,21 @@ const publicReportsRoutes: FastifyPluginAsync = async (app) => {
     app.put("/public-reports/:id/status", { preHandler: authDashboardGuard }, async (req, reply) => {
         try {
             const params = req.params as { id: string };
-            const body = req.body as { status: string; photoFinished?: string };
+            const body = req.body as { status: string; photoFinished?: string; statusDescription?: string };
 
             if (!body.status) {
                 return reply.code(400).send({ message: "Status is required" });
             }
 
             const dataToUpdate: any = { status: body.status };
-            if (body.photoFinished) {
+            if (body.status === "Tidak Valid") {
+                dataToUpdate.photoFinished = null;
+            } else if (body.photoFinished) {
                 dataToUpdate.photoFinished = body.photoFinished;
+            }
+            
+            if (body.statusDescription !== undefined) {
+                dataToUpdate.statusDescription = body.statusDescription;
             }
 
             const updatedReport = await prisma.publicReport.update({
@@ -167,6 +173,22 @@ const publicReportsRoutes: FastifyPluginAsync = async (app) => {
 
             return reply.send({ message: "Status laporan berhasil diubah!", data: updatedReport });
         } catch (error) {
+            return reply.code(500).send({ message: "Internal Server Error", error });
+        }
+    });
+
+    // 5. DELETE REPORT (For Admin Portal, Guarded)
+    app.delete("/public-reports/:id", { preHandler: authDashboardGuard }, async (req, reply) => {
+        try {
+            const params = req.params as { id: string };
+            
+            await prisma.publicReport.delete({
+                where: { id: params.id }
+            });
+
+            return reply.send({ message: "Laporan berhasil dihapus!" });
+        } catch (error) {
+            console.error("Error deleting report:", error);
             return reply.code(500).send({ message: "Internal Server Error", error });
         }
     });
